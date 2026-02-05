@@ -1,6 +1,6 @@
 # Technical Integration Guide: EPB Dashboard
 
-This document details the architectural patterns and implementation standards used in the EPB Dashboard Pro.
+This document details the architectural patterns and implementation standards used in the EPB Dashboard Pro v1.1.
 
 ## 🧠 Gemini API Integration Patterns
 
@@ -16,19 +16,30 @@ const systemInstructions = {
 };
 ```
 
-### Reasoning with Thinking Budget
-For "Deep Analysis," we utilize the `thinkingConfig`. This allows the model to perform internal "Chain of Thought" reasoning before presenting the final response.
+### Deep Reasoning with Thinking Budget
+For "Deep Analysis" and "Studio Deliverables," we utilize the `thinkingConfig` available in **Gemini 3**. This allows the model to perform internal "Chain of Thought" reasoning before presenting the final response.
 
-*   **Config**: `thinkingConfig: { thinkingBudget: 8000 }`
-*   **Use Case**: Executive summaries and strategic variations.
+*   **Config**: `thinkingConfig: { thinkingBudget: 4096 }` (Adaptive based on task type)
+*   **Impact**: Significantly reduces hallucinations in complex architectural diagrams and strategic reports.
 
 ### Search Grounding
 To prevent hallucinations in the "Compliance" section, we implement `googleSearch` tools. This ensures that mentions of the **EU AI Act** or **NIST Frameworks** are based on current web data.
 
-### Multimodal TTS (Text-to-Speech)
-The `speakReport` function uses `gemini-2.5-flash-preview-tts` to convert reports into audio.
-*   **Voice**: `Kore` (Professional/Authoritative)
-*   **Implementation**: Raw PCM decoding via Web Audio API (`AudioContext`).
+### Robust JSON Handling
+LLMs often wrap JSON output in Markdown code blocks (e.g., ` ```json ... ``` `). We implement a `cleanAndParseJson` utility to strip these delimiters before parsing, ensuring application stability.
+
+## 🔊 Audio Pipeline
+
+The dashboard implements a sophisticated Text-to-Speech (TTS) pipeline:
+
+1.  **Generation**: Uses `gemini-2.5-flash-preview-tts` with the `Kore` voice.
+2.  **Transport**: Receives raw Base64-encoded PCM audio data.
+3.  **Decoding**:
+    *   Decodes Base64 to `Uint8Array`.
+    *   Converts `Uint8Array` to `Int16Array` (PCM 16-bit).
+    *   Normalizes to Float32 (-1.0 to 1.0).
+    *   Loads into a Web Audio API `AudioBuffer`.
+4.  **Playback**: Managed by a custom `AudioPlayer` component that handles `AudioContext` states (suspended/running) and precise scheduling.
 
 ## 🎨 UI/UX Component Library
 

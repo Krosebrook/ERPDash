@@ -90,32 +90,50 @@ const CostCompliance: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
         <div className="px-6 py-4 border-b border-slate-800 bg-slate-800/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <h3 className="font-bold text-lg">Immutable Audit Trail</h3>
           <div className="flex flex-wrap gap-2 w-full md:w-auto">
-            <select 
-              value={actionFilter} 
-              onChange={(e) => setActionFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Actions</option>
-              {uniqueActions.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <select 
-              value={actorFilter} 
-              onChange={(e) => setActorFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Actors</option>
-              {uniqueActors.map(u => <option key={u} value={u}>{u}</option>)}
-            </select>
-            <select 
-              value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">All Statuses</option>
-              {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <div className="relative">
+                <select 
+                value={actionFilter} 
+                onChange={(e) => setActionFilter(e.target.value)}
+                className="appearance-none bg-slate-950 border border-slate-800 rounded pl-3 pr-8 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+                >
+                <option value="">All Actions</option>
+                {uniqueActions.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                    <svg className="fill-current h-3 w-3" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </div>
+            </div>
+            
+            <div className="relative">
+                <select 
+                value={actorFilter} 
+                onChange={(e) => setActorFilter(e.target.value)}
+                className="appearance-none bg-slate-950 border border-slate-800 rounded pl-3 pr-8 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+                >
+                <option value="">All Actors</option>
+                {uniqueActors.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                    <svg className="fill-current h-3 w-3" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </div>
+            </div>
+
+            <div className="relative">
+                <select 
+                value={statusFilter} 
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="appearance-none bg-slate-950 border border-slate-800 rounded pl-3 pr-8 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+                >
+                <option value="">All Statuses</option>
+                {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                    <svg className="fill-current h-3 w-3" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </div>
+            </div>
+
             <Tooltip content="Download cryptographically signed PDF audit report">
-              <button className="text-[10px] bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded border border-slate-700 text-blue-400 font-bold transition-colors">Download Report</button>
+              <button className="text-[10px] bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded border border-slate-700 text-blue-400 font-bold transition-colors">Download Report</button>
             </Tooltip>
           </div>
         </div>
