@@ -200,7 +200,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
                       onClick={() => setDeliverableType(p.id)}
                       className={`text-left p-4 rounded-xl border transition-all duration-300 flex flex-col gap-1 group relative overflow-hidden transform ${
                         deliverableType === p.id 
-                        ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-[1.02] ring-1 ring-blue-500/50' 
+                        ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)] scale-[1.02] ring-1 ring-blue-500/50' 
                         : 'border-[var(--border-color)] bg-[var(--bg-main)] hover:border-blue-400/50 hover:shadow-xl hover:scale-[1.03] hover:-translate-y-1'
                       }`}
                     >
@@ -341,7 +341,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
                         </div>
                         <div className="text-center max-w-xs">
                           <p className="font-bold text-[var(--text-primary)] mb-1">No insights generated yet</p>
-                          <p className="text-xs">Select your parameters and click "Start Reasoning Analysis" to begin deep-dive evaluation.</p>
+                          <p className="text-xs">Click the "Start Reasoning Analysis" button above to start.</p>
                         </div>
                     </div>
                 )}
@@ -400,7 +400,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
                         </div>
                         <div className="text-center max-w-xs">
                           <p className="font-bold text-[var(--text-primary)] mb-1">Workspace Empty</p>
-                          <p className="text-xs">Select a persona on the left and generate a high-fidelity deliverable.</p>
+                          <p className="text-xs">Select a persona on the left and click "Generate Deliverable" to start.</p>
                         </div>
                      </div>
                 )}
