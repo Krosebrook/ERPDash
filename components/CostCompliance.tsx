@@ -1,26 +1,31 @@
 
 import React, { useState, useMemo } from 'react';
 import { UserRole, AuditLog } from '../types';
-import { MOCK_AUDIT_LOGS } from '../constants';
 import Tooltip from './Tooltip';
 
-const CostCompliance: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
+interface Props {
+  userRole: UserRole;
+  auditLogs: AuditLog[];
+  currentCost: number;
+}
+
+const CostCompliance: React.FC<Props> = ({ userRole, auditLogs, currentCost }) => {
   const [actionFilter, setActionFilter] = useState('');
   const [actorFilter, setActorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const uniqueActions = useMemo(() => Array.from(new Set(MOCK_AUDIT_LOGS.map(log => log.action))), []);
-  const uniqueActors = useMemo(() => Array.from(new Set(MOCK_AUDIT_LOGS.map(log => log.user))), []);
-  const uniqueStatuses = useMemo(() => Array.from(new Set(MOCK_AUDIT_LOGS.map(log => log.status))), []);
+  const uniqueActions = useMemo(() => Array.from(new Set(auditLogs.map(log => log.action))), [auditLogs]);
+  const uniqueActors = useMemo(() => Array.from(new Set(auditLogs.map(log => log.user))), [auditLogs]);
+  const uniqueStatuses = useMemo(() => Array.from(new Set(auditLogs.map(log => log.status))), [auditLogs]);
 
   const filteredLogs = useMemo(() => {
-    return MOCK_AUDIT_LOGS.filter(log => {
+    return auditLogs.filter(log => {
       const matchAction = !actionFilter || log.action === actionFilter;
       const matchActor = !actorFilter || log.user === actorFilter;
       const matchStatus = !statusFilter || log.status === statusFilter;
       return matchAction && matchActor && matchStatus;
     });
-  }, [actionFilter, actorFilter, statusFilter]);
+  }, [auditLogs, actionFilter, actorFilter, statusFilter]);
 
   return (
     <div className="space-y-8 animate-in zoom-in-95 duration-500">
@@ -31,11 +36,14 @@ const CostCompliance: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Monthly Budget Usage</span>
-                <span className="font-bold text-blue-400">84%</span>
+                <span className="font-bold text-blue-400">{(currentCost / 14800 * 100).toFixed(1)}%</span>
               </div>
               <Tooltip content="Spending reaches alert threshold at 90%" position="bottom">
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden cursor-help">
-                  <div className="bg-blue-600 h-full w-[84%]"></div>
+                  <div 
+                    className="bg-blue-600 h-full transition-all duration-1000" 
+                    style={{ width: `${Math.min(100, (currentCost / 14800 * 100))}%` }}
+                  ></div>
                 </div>
               </Tooltip>
             </div>
@@ -44,7 +52,7 @@ const CostCompliance: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
               <Tooltip content="Actual recognized costs to date">
                 <div className="p-4 bg-slate-800 rounded-lg cursor-help">
                   <span className="text-xs text-slate-500 uppercase block mb-1">Spent</span>
-                  <span className="text-xl font-bold">$12,450</span>
+                  <span className="text-xl font-bold">${currentCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                 </div>
               </Tooltip>
               <Tooltip content="Estimated cost at end of billing cycle">
@@ -137,41 +145,43 @@ const CostCompliance: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
             </Tooltip>
           </div>
         </div>
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-800/30 text-slate-500 uppercase text-[10px] font-bold tracking-widest">
-            <tr>
-              <th className="px-6 py-3">Action</th>
-              <th className="px-6 py-3">Actor</th>
-              <th className="px-6 py-3">Resource</th>
-              <th className="px-6 py-3">Status</th>
-              <th className="px-6 py-3">Timestamp</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {filteredLogs.map((log) => (
-              <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                <td className="px-6 py-4 font-mono text-xs text-blue-400">{log.action}</td>
-                <td className="px-6 py-4 text-slate-200">{log.user}</td>
-                <td className="px-6 py-4 text-slate-400">{log.resource}</td>
-                <td className="px-6 py-4">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                    log.status === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
-                  }`}>
-                    {log.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-xs text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
-              </tr>
-            ))}
-            {filteredLogs.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-6 py-10 text-center text-slate-500 italic text-sm">
-                  No audit logs match the selected filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
+            <table className="w-full text-left text-sm">
+            <thead className="bg-slate-800/30 text-slate-500 uppercase text-[10px] font-bold tracking-widest sticky top-0 z-10 backdrop-blur-md">
+                <tr>
+                <th className="px-6 py-3">Action</th>
+                <th className="px-6 py-3">Actor</th>
+                <th className="px-6 py-3">Resource</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Timestamp</th>
+                </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+                {filteredLogs.map((log) => (
+                <tr key={log.id} className="hover:bg-slate-800/30 transition-colors animate-in slide-in-from-left-2 duration-300">
+                    <td className="px-6 py-4 font-mono text-xs text-blue-400">{log.action}</td>
+                    <td className="px-6 py-4 text-slate-200">{log.user}</td>
+                    <td className="px-6 py-4 text-slate-400">{log.resource}</td>
+                    <td className="px-6 py-4">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        log.status === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                    }`}>
+                        {log.status}
+                    </span>
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-500">{new Date(log.timestamp).toLocaleTimeString()}</td>
+                </tr>
+                ))}
+                {filteredLogs.length === 0 && (
+                <tr>
+                    <td colSpan={5} className="px-6 py-10 text-center text-slate-500 italic text-sm">
+                    No audit logs match the selected filters.
+                    </td>
+                </tr>
+                )}
+            </tbody>
+            </table>
+        </div>
       </div>
     </div>
   );

@@ -1,10 +1,12 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EPB Dashboard Pro</title>
+    <meta name="theme-color" content="#020617">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="https://picsum.photos/seed/epb-192/192/192">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,5 +49,51 @@
 </head>
 <body>
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        const initPWA = async () => {
+          try {
+            // 1. Safe Cleanup: Attempt to remove stale workers that might conflict with current origin
+            try {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              for (const registration of registrations) {
+                // If the scope doesn't match current origin, it's likely a leftover from a different proxy session
+                if (!registration.scope.includes(window.location.origin)) {
+                   await registration.unregister();
+                }
+              }
+            } catch (cleanupErr) {
+              // Ignore cleanup errors in restricted environments
+            }
+
+            // 2. Register with robust error handling for Preview Environments
+            const swUrl = './sw.js?v=1.1.6';
+            try {
+                const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
+                console.log('[PWA] Service Worker Active', reg.scope);
+            } catch (regErr) {
+                // Explicitly suppress "Origin Mismatch" or "Invalid State" errors common in AI Studio/IDX previews
+                const msg = regErr.message || '';
+                if (msg.includes('origin') || msg.includes('scriptURL') || msg.includes('invalid state')) {
+                    console.warn('[PWA] Service Worker skipped: Preview environment restriction detected.');
+                } else {
+                    console.error('[PWA] Registration failed:', regErr);
+                }
+            }
+
+          } catch (err) {
+            console.error('[PWA] Initialization error:', err);
+          }
+        };
+
+        // Ensure document is fully stable before touching SW API
+        // A small delay helps avoid "Invalid State" in some iframe containers
+        if (document.readyState === 'complete') {
+          setTimeout(initPWA, 500);
+        } else {
+          window.addEventListener('load', () => setTimeout(initPWA, 500));
+        }
+      }
+    </script>
 </body>
 </html>

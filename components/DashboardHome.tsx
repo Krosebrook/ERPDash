@@ -16,15 +16,16 @@ import {
   Cell 
 } from 'recharts';
 
-const data = [
-  { name: 'Mon', usage: 4000, cost: 240 },
-  { name: 'Tue', usage: 3000, cost: 198 },
-  { name: 'Wed', usage: 2000, cost: 98 },
-  { name: 'Thu', usage: 2780, cost: 390 },
-  { name: 'Fri', usage: 1890, cost: 480 },
-  { name: 'Sat', usage: 2390, cost: 380 },
-  { name: 'Sun', usage: 3490, cost: 430 },
-];
+interface DashboardHomeProps {
+  userRole: UserRole;
+  metrics: {
+    cost: number;
+    activeAgents: number;
+    tokens: number;
+    latency: number;
+  };
+  chartData: any[];
+}
 
 /**
  * Custom Tooltip component for Recharts to match the high-fidelity Pro UI.
@@ -46,33 +47,41 @@ const CustomChartTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-const DashboardHome: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
+const DashboardHome: React.FC<DashboardHomeProps> = ({ userRole, metrics, chartData }) => {
   const [hoveredBar, setHoveredBar] = React.useState<number | null>(null);
+
+  const formatCost = (val: number) => `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatTokens = (val: number) => `${(val / 1000000).toFixed(1)}M`;
+  const formatLatency = (val: number) => `${(val / 1000).toFixed(2)}s`;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard label="Monthly Cost" value="$12,450" unit="USD" trend="up" changePercent={12.5} />
-        <MetricCard label="Active Agents" value="24" unit="agents" trend="flat" changePercent={0} />
-        <MetricCard label="Total Tokens" value="45.2M" unit="tokens" trend="down" changePercent={3.2} />
-        <MetricCard label="Avg Latency" value="1.2s" unit="seconds" trend="up" changePercent={5.4} />
+        <MetricCard label="Monthly Cost" value={formatCost(metrics.cost)} unit="USD" trend="up" changePercent={1.2} />
+        <MetricCard label="Active Agents" value={metrics.activeAgents.toString()} unit="agents" trend="flat" changePercent={0} />
+        <MetricCard label="Total Tokens" value={formatTokens(metrics.tokens)} unit="tokens" trend="up" changePercent={0.5} />
+        <MetricCard label="Avg Latency" value={formatLatency(metrics.latency)} unit="seconds" trend="down" changePercent={0.1} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Interactive Bar Chart for Token Usage */}
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-slate-100">Token Usage Trends</h3>
+            <h3 className="text-lg font-bold text-slate-100">Live Token Throughput</h3>
             <Tooltip content="Live telemetry of aggregated token consumption across all multi-tenant agents.">
-              <svg className="w-4 h-4 text-slate-600 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+              <div className="flex items-center gap-2">
+                 <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Live</span>
+              </div>
             </Tooltip>
           </div>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
-                data={data} 
+                data={chartData} 
                 onMouseMove={(state) => {
                   if (state.activeTooltipIndex !== undefined) {
                     setHoveredBar(state.activeTooltipIndex);
@@ -100,8 +109,8 @@ const DashboardHome: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
                   content={<CustomChartTooltip />} 
                   cursor={{ fill: 'rgba(51, 65, 85, 0.2)' }}
                 />
-                <Bar dataKey="usage" radius={[4, 4, 0, 0]} animationDuration={1500}>
-                  {data.map((entry, index) => (
+                <Bar dataKey="usage" radius={[4, 4, 0, 0]} animationDuration={500} isAnimationActive={true}>
+                  {chartData.map((entry, index) => (
                     <Cell 
                       key={`cell-${index}`} 
                       fill={hoveredBar === index ? '#3b82f6' : '#1d4ed8'} 
@@ -117,16 +126,16 @@ const DashboardHome: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
         {/* Interactive Line Chart for Cost Breakdown */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-slate-100">Cost Breakdown</h3>
-            <Tooltip content="Normalized daily expenditure in USD, inclusive of inference and storage costs.">
-              <svg className="w-4 h-4 text-slate-600 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <h3 className="text-lg font-bold text-slate-100">Live Cost Velocity</h3>
+            <Tooltip content="Normalized real-time expenditure velocity.">
+               <svg className="w-4 h-4 text-slate-600 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </Tooltip>
           </div>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data}>
+              <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                 <XAxis 
                   dataKey="name" 
@@ -154,6 +163,7 @@ const DashboardHome: React.FC<{ userRole: UserRole }> = ({ userRole }) => {
                   strokeWidth={3} 
                   dot={{ r: 4, fill: '#ef4444', strokeWidth: 2, stroke: '#020617' }} 
                   activeDot={{ r: 6, fill: '#ef4444', stroke: '#fff', strokeWidth: 2 }}
+                  isAnimationActive={false} // Disable animation for smooth sliding
                 />
               </LineChart>
             </ResponsiveContainer>
