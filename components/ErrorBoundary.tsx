@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children?: ReactNode;
@@ -13,7 +13,7 @@ interface State {
  * Standard React Error Boundary component.
  * Intercepts rendering errors in the UI execution layer and provides a fallback interface.
  */
-class ErrorBoundary extends Component<Props, State> {
+class ErrorBoundary extends React.Component<Props, State> {
   // Properly initialize state to ensure it is recognized as part of the class instance
   public state: State = {
     hasError: false,

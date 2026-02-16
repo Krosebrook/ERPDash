@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useRef } from 'react';
 import { KnowledgeDoc } from '../types';
 import { simulateKnowledgeRetrieval } from '../services/geminiService';
 import Tooltip from './Tooltip';
@@ -14,11 +15,36 @@ const KnowledgeBase: React.FC = () => {
   const [testQuery, setTestQuery] = useState('');
   const [retrievalResult, setRetrievalResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        // Read file content as text
+        const text = await file.text();
+        
+        const newDoc: KnowledgeDoc = {
+            id: `doc-${Date.now()}`,
+            name: file.name,
+            type: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.md') ? 'md' : 'txt',
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            status: 'indexed',
+            lastUpdated: new Date().toISOString().split('T')[0],
+            vectorCount: Math.ceil(text.length / 4), // Approx token count
+            content: text // Store in memory
+        };
+        
+        setDocs(prev => [newDoc, ...prev]);
+        // Reset input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleTest = async () => {
       setLoading(true);
       try {
-          const res = await simulateKnowledgeRetrieval(testQuery);
+          // Pass the current documents (including uploaded ones with content) to the simulator
+          const res = await simulateKnowledgeRetrieval(testQuery, docs);
           setRetrievalResult(res);
       } catch (e) {
           console.error(e);
@@ -33,7 +59,20 @@ const KnowledgeBase: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold">Knowledge Graph</h2>
-                <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg">Upload Document</button>
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept=".txt,.md,.pdf,.json" 
+                    onChange={handleFileChange}
+                />
+                <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-sm shadow-lg active:scale-95 transition-all flex items-center gap-2"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    Upload Document
+                </button>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
@@ -50,7 +89,10 @@ const KnowledgeBase: React.FC = () => {
                     <tbody className="divide-y divide-slate-800">
                         {docs.map(doc => (
                             <tr key={doc.id} className="hover:bg-slate-800/30 transition-colors">
-                                <td className="px-6 py-4 font-bold text-slate-200">{doc.name}</td>
+                                <td className="px-6 py-4 font-bold text-slate-200">
+                                    {doc.name}
+                                    {doc.content && <span className="ml-2 text-[9px] bg-blue-900 text-blue-300 px-1 rounded">LOCAL</span>}
+                                </td>
                                 <td className="px-6 py-4"><span className="uppercase text-xs font-mono bg-slate-800 px-2 py-1 rounded text-slate-400">{doc.type}</span></td>
                                 <td className="px-6 py-4">
                                     <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${doc.status === 'indexed' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'}`}>
@@ -69,7 +111,7 @@ const KnowledgeBase: React.FC = () => {
         {/* Retrieval Tester */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col h-full">
             <h3 className="font-bold text-lg mb-4">Retrieval Simulator</h3>
-            <p className="text-xs text-slate-400 mb-4">Test semantic relevance using Gemini hybrid search.</p>
+            <p className="text-xs text-slate-400 mb-4">Test semantic relevance against your uploaded corpus using Gemini.</p>
             
             <div className="space-y-4 flex-1 flex flex-col">
                 <input 
@@ -93,9 +135,19 @@ const KnowledgeBase: React.FC = () => {
                              <span className="text-[10px] font-bold uppercase text-slate-500">Result</span>
                              <span className="text-[10px] font-bold text-green-500">Score: {(Math.random() * 0.5 + 0.4).toFixed(2)}</span>
                         </div>
-                        <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap">
-                            {JSON.stringify(retrievalResult, null, 2)}
-                        </pre>
+                        <div className="space-y-3">
+                            {Array.isArray(retrievalResult) && retrievalResult.map((item: any, i: number) => (
+                                <div key={i} className="p-3 bg-slate-900 rounded border border-slate-800">
+                                    <div className="flex justify-between text-[10px] font-bold text-blue-400 mb-1">
+                                        <span>{item.documentName}</span>
+                                        <span>{item.relevanceScore?.toFixed(2)}</span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-300 leading-relaxed font-mono">
+                                        "{item.snippet}"
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

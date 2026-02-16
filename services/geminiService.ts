@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
-import { StrategicVariation, GroundingSource } from "../types";
+import { StrategicVariation, GroundingSource, KnowledgeDoc } from "../types";
 
 export interface ChartConfig {
   title: string;
@@ -506,12 +506,35 @@ export const chatWithSystemCopilot = async (
 /**
  * Simulation of semantic search using the Gemini API.
  */
-export const simulateKnowledgeRetrieval = async (query: string) => {
+export const simulateKnowledgeRetrieval = async (query: string, corpus: KnowledgeDoc[] = []) => {
   return withLogging('simulateKnowledgeRetrieval', async () => {
     const ai = getAI();
+    
+    const contextDocs = corpus.filter(d => d.content);
+    let promptContext = "";
+    
+    if (contextDocs.length > 0) {
+        // Build a context string from the uploaded docs, truncating to avoid token limits in this demo
+        promptContext = contextDocs.map(d => `SOURCE: ${d.name}\nCONTENT: ${d.content?.slice(0, 3000)}...`).join('\n\n'); 
+    }
+
+    const contents = `
+      Perform a semantic search (RAG) retrieval simulation.
+      
+      USER QUERY: "${query}"
+      
+      AVAILABLE DOCUMENTS (Context):
+      ${promptContext || "No user-provided documents available. Simulate a retrieval from a generic enterprise knowledge base (e.g. HR Policy, Engineering Wiki)."}
+      
+      INSTRUCTIONS:
+      1. If Context Documents are provided above, YOU MUST extract relevant snippets directly from them to answer the query.
+      2. If no documents are provided, generate plausible mock enterprise document chunks.
+      3. Return the result strictly in the specified JSON format.
+    `;
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Simulate semantic search for: "${query}". Return mock document chunks in JSON format.`,
+      contents: contents,
       config: {
         responseMimeType: "application/json",
         responseSchema: {

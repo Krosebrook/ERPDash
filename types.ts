@@ -99,6 +99,7 @@ export interface KnowledgeDoc {
   status: 'indexed' | 'indexing' | 'failed';
   lastUpdated: string;
   vectorCount: number;
+  content?: string;
 }
 
 export interface SystemAlert {
