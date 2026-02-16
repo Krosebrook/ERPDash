@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from "@google/genai";
 import { Agent } from "../types";
 
@@ -46,6 +47,9 @@ export class LiveSessionService {
   private nextStartTime = 0;
   private sources = new Set<AudioBufferSourceNode>();
   
+  // Session handling
+  private sessionPromise: Promise<any> | null = null;
+  
   // App State Bindings
   private navigateFn: ((view: string) => void) | null = null;
   private getMetricsFn: (() => any) | null = null;
@@ -68,22 +72,38 @@ export class LiveSessionService {
   }
 
   async connect() {
+    this.disconnect(); // Ensure clean slate
+
     this.inputContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
     this.outputContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    
+    // Ensure Contexts are active (Autoplay Policy)
+    if (this.inputContext.state === 'suspended') await this.inputContext.resume();
+    if (this.outputContext.state === 'suspended') await this.outputContext.resume();
+
     this.outputNode = this.outputContext.createGain();
     this.outputNode.connect(this.outputContext.destination);
 
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error("[Live] Microphone access denied", err);
+      throw new Error("Microphone access is required for Live Session.");
+    }
 
     // CRITICAL: Always create a new GoogleGenAI instance right before making an API call
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    const apiKey = process.env.API_KEY || '';
+    if (!apiKey) throw new Error("API_KEY not found in environment.");
+    
+    const ai = new GoogleGenAI({ apiKey });
 
-    const sessionPromise = ai.live.connect({
+    // Store the promise so we can use it to send frames later
+    this.sessionPromise = ai.live.connect({
       model: 'gemini-2.5-flash-native-audio-preview-12-2025',
       config: {
         responseModalities: [Modality.AUDIO],
         tools: [{ functionDeclarations: tools }],
-        systemInstruction: "You are the EPB Voice Command. You control a mission-critical AI dashboard. Be concise, professional, and authoritative. When data is requested, use the provided tools. Do not make up data.",
+        systemInstruction: "You are the EPB Voice Command. You control a mission-critical AI dashboard. Be concise, professional, and authoritative. When data is requested, use the provided tools. Do not make up data. If you see something through the camera, describe it in the context of enterprise security or operations.",
         speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
         }
@@ -91,15 +111,31 @@ export class LiveSessionService {
       callbacks: {
         onopen: () => {
           console.log('[Live] Connected');
-          this.startAudioInput(sessionPromise);
+          if (this.sessionPromise) this.startAudioInput(this.sessionPromise);
         },
         onmessage: async (msg: LiveServerMessage) => {
-          this.handleMessage(msg, sessionPromise);
+          if (this.sessionPromise) this.handleMessage(msg, this.sessionPromise);
         },
         onclose: () => console.log('[Live] Closed'),
         onerror: (err) => console.error('[Live] Error', err)
       }
     });
+    
+    // We await it here to ensure initial connection success, but the property holds the promise for async operations
+    await this.sessionPromise;
+  }
+
+  // New method for Vision capabilities
+  async sendVideoFrame(base64Image: string) {
+    if (this.sessionPromise) {
+        const session = await this.sessionPromise;
+        session.sendRealtimeInput({
+            media: {
+                mimeType: 'image/jpeg',
+                data: base64Image
+            }
+        });
+    }
   }
 
   private startAudioInput(sessionPromise: Promise<any>) {
@@ -124,10 +160,12 @@ export class LiveSessionService {
         pcm16[i] = inputData[i] * 32768;
       }
       
+      // We must check if the input context is still active before sending
+      if (this.inputContext?.state === 'closed') return;
+
       const uint8 = new Uint8Array(pcm16.buffer);
       const base64 = this.encode(uint8);
 
-      // CRITICAL: Solely rely on sessionPromise resolves
       sessionPromise.then(session => {
         session.sendRealtimeInput({
           media: {
@@ -158,20 +196,23 @@ export class LiveSessionService {
             
             try {
                 if (call.name === 'navigate_app' && this.navigateFn) {
-                    this.navigateFn((call.args as any).view);
-                    result = { status: 'navigated', view: (call.args as any).view };
+                    const view = (call.args as any).view;
+                    this.navigateFn(view);
+                    result = { status: 'navigated', view };
                 } else if (call.name === 'get_dashboard_metrics' && this.getMetricsFn) {
                     result = this.getMetricsFn();
                 } else if (call.name === 'get_agent_status' && this.getAgentsFn) {
-                    const name = (call.args as any).agentName.toLowerCase();
+                    const name = (call.args as any).agentName?.toLowerCase() || '';
                     const agent = this.getAgentsFn().find(a => a.name.toLowerCase().includes(name));
                     result = agent ? { found: true, agent } : { found: false, error: 'Agent not found' };
+                } else {
+                    result = { status: 'error', message: 'Unknown tool or missing capability binding' };
                 }
             } catch (e: any) {
+                console.error('[Live] Tool Execution Error', e);
                 result = { status: 'error', message: e.message };
             }
 
-            // CRITICAL: Send tool response back to model via sessionPromise
             sessionPromise.then(session => {
                 session.sendToolResponse({ 
                     functionResponses: {
@@ -188,32 +229,66 @@ export class LiveSessionService {
   private async queueAudio(base64: string) {
     if (!this.outputContext || !this.outputNode) return;
 
-    const audioBytes = this.decode(base64);
-    const audioBuffer = await this.decodeAudioData(audioBytes, this.outputContext, 24000, 1);
+    try {
+        const audioBytes = this.decode(base64);
+        const audioBuffer = await this.decodeAudioData(audioBytes, this.outputContext, 24000, 1);
 
-    // Schedule: Always schedule the next audio chunk to start at the exact end time of the previous one
-    this.nextStartTime = Math.max(this.nextStartTime, this.outputContext.currentTime);
-    
-    const source = this.outputContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.outputNode);
-    source.start(this.nextStartTime);
-    
-    this.nextStartTime += audioBuffer.duration;
-    this.sources.add(source);
-    
-    source.onended = () => this.sources.delete(source);
+        const currentTime = this.outputContext.currentTime;
+        if (this.nextStartTime < currentTime) {
+            this.nextStartTime = currentTime;
+        }
+        
+        const source = this.outputContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(this.outputNode);
+        source.start(this.nextStartTime);
+        
+        this.nextStartTime += audioBuffer.duration;
+        this.sources.add(source);
+        
+        source.onended = () => this.sources.delete(source);
+    } catch (e) {
+        console.error("[Live] Audio Queue Error", e);
+    }
   }
 
-  // --- Utils Following Coding Guidelines ---
-
   async disconnect() {
-    this.stream?.getTracks().forEach(t => t.stop());
-    this.processor?.disconnect();
-    this.source?.disconnect();
-    this.inputContext?.close();
-    this.outputContext?.close();
-    this.sources.forEach(s => s.stop());
+    this.sessionPromise = null;
+    
+    // 1. Stop all tracks
+    if (this.stream) {
+        this.stream.getTracks().forEach(t => t.stop());
+        this.stream = null;
+    }
+    
+    // 2. Disconnect nodes
+    if (this.processor) {
+        this.processor.disconnect();
+        this.processor.onaudioprocess = null; 
+        this.processor = null;
+    }
+    if (this.source) {
+        this.source.disconnect();
+        this.source = null;
+    }
+    
+    // 3. Close contexts
+    if (this.inputContext && this.inputContext.state !== 'closed') {
+        await this.inputContext.close();
+    }
+    this.inputContext = null;
+
+    if (this.outputContext && this.outputContext.state !== 'closed') {
+        await this.outputContext.close();
+    }
+    this.outputContext = null;
+
+    // 4. Stop any playing sources
+    this.sources.forEach(s => {
+        try { s.stop(); } catch(e) {}
+    });
+    this.sources.clear();
+    this.nextStartTime = 0;
   }
 
   private encode(bytes: Uint8Array): string {

@@ -1,15 +1,17 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage } from '../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { ChatMessage, Agent } from '../types';
 import { chatWithSystemCopilot } from '../services/geminiService';
 import Tooltip from './Tooltip';
 
 interface Props {
   onNavigate: (view: string) => void;
   onLaunchLive: () => void;
+  agents?: Agent[];
+  metrics?: any;
 }
 
-const GlobalCopilot: React.FC<Props> = ({ onNavigate, onLaunchLive }) => {
+const GlobalCopilot: React.FC<Props> = ({ onNavigate, onLaunchLive, agents, metrics }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: '1', role: 'system', text: 'Hello, I am the EPB OS Copilot. I can help you navigate the system, analyze agents, or query documentation.', timestamp: Date.now() }
@@ -23,6 +25,20 @@ const GlobalCopilot: React.FC<Props> = ({ onNavigate, onLaunchLive }) => {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isOpen]);
+
+  // Generate a live context summary
+  const systemContext = useMemo(() => {
+    if (!agents || !metrics) return '';
+    return `
+    ACTIVE AGENTS (${agents.length}):
+    ${agents.map(a => `- ${a.name} (${a.type}): ${a.status}, Latency: ${a.avgLatencyMs}ms`).join('\n')}
+
+    LIVE METRICS:
+    - Monthly Cost: $${metrics.cost?.toFixed(2)}
+    - Total Tokens: ${metrics.tokens}
+    - Avg Latency: ${metrics.latency}ms
+    `;
+  }, [agents, metrics]);
 
   const handleSend = async () => {
     if (!input.trim() || isProcessing) return;
@@ -38,10 +54,15 @@ const GlobalCopilot: React.FC<Props> = ({ onNavigate, onLaunchLive }) => {
             parts: [{ text: m.text }]
         }));
         
-        const responseText = await chatWithSystemCopilot(userMsg.text, history, (view) => {
-            setIsOpen(false); // Close on nav for better UX
-            onNavigate(view);
-        });
+        const responseText = await chatWithSystemCopilot(
+            userMsg.text, 
+            history, 
+            (view) => {
+                setIsOpen(false); 
+                onNavigate(view);
+            },
+            systemContext
+        );
 
         setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: responseText, timestamp: Date.now() }]);
     } catch (e) {

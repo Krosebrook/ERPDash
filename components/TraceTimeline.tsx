@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { TraceSpan } from '../types';
 import Tooltip from './Tooltip';
@@ -18,12 +19,12 @@ const TraceTimeline: React.FC<Props> = ({ traces }) => {
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg mb-6">
       <h3 className="text-sm font-bold uppercase text-slate-400 tracking-widest mb-6">Execution Timeline</h3>
       <div className="space-y-3 relative">
-         {/* Grid lines could go here */}
-         <div className="absolute top-0 bottom-0 left-0 w-px bg-slate-800/50"></div>
-         <div className="absolute top-0 bottom-0 left-1/4 w-px bg-slate-800/50"></div>
-         <div className="absolute top-0 bottom-0 left-1/2 w-px bg-slate-800/50"></div>
-         <div className="absolute top-0 bottom-0 left-3/4 w-px bg-slate-800/50"></div>
-         <div className="absolute top-0 bottom-0 right-0 w-px bg-slate-800/50"></div>
+         {/* Visible Grid lines */}
+         <div className="absolute top-0 bottom-0 left-0 w-px bg-slate-800"></div>
+         <div className="absolute top-0 bottom-0 left-1/4 w-px bg-slate-800/30"></div>
+         <div className="absolute top-0 bottom-0 left-1/2 w-px bg-slate-800/50 border-l border-dashed border-slate-700"></div>
+         <div className="absolute top-0 bottom-0 left-3/4 w-px bg-slate-800/30"></div>
+         <div className="absolute top-0 bottom-0 right-0 w-px bg-slate-800"></div>
 
          {traces.map((trace) => {
              const start = new Date(trace.timestamp).getTime();
@@ -35,12 +36,12 @@ const TraceTimeline: React.FC<Props> = ({ traces }) => {
 
              return (
                  <div key={trace.id} className="relative h-8 flex items-center group">
-                     <div className="w-32 text-xs font-mono text-slate-500 truncate mr-4 text-right shrink-0">{trace.spanName}</div>
+                     <div className="w-32 text-xs font-mono text-slate-500 truncate mr-4 text-right shrink-0 group-hover:text-slate-300 transition-colors">{trace.spanName}</div>
                      <div className="flex-1 h-full relative bg-slate-950/50 rounded overflow-hidden">
                         <Tooltip content={`${trace.spanName}: ${trace.durationMs}ms (${trace.status})`} position="top">
                              <div 
                                 className={`absolute top-1 bottom-1 rounded-md transition-all hover:brightness-110 cursor-help ${
-                                    trace.status === 'error' ? 'bg-red-500' : 'bg-blue-600'
+                                    trace.status === 'error' ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]' : 'bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)]'
                                 }`}
                                 style={{ 
                                     left: `${offset}%`, 

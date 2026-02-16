@@ -67,6 +67,10 @@ export const useSimulation = () => {
       setAuditLogs(prev => [newLog, ...prev].slice(0, 100));
   }, []);
 
+  const addTrace = useCallback((trace: TraceSpan) => {
+      setTraces(prev => [trace, ...prev].slice(0, 100));
+  }, []);
+
   // --- SIMULATION LOOP ---
   
   useEffect(() => {
@@ -156,6 +160,7 @@ export const useSimulation = () => {
       metrics,
       chartData,
       approveHitl,
-      rejectHitl
+      rejectHitl,
+      addTrace
   };
 };

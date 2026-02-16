@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserRole, Agent, TraceSpan, AuditLog } from './types';
+import { UserRole, Agent } from './types';
 import Sidebar from './components/Sidebar';
 import DashboardHome from './components/DashboardHome';
 import AgentObservability from './components/AgentObservability';
@@ -19,10 +19,15 @@ import { useSimulation } from './hooks/useSimulation';
 const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>(UserRole.ADMIN);
   const [view, setView] = useState<'home' | 'observability' | 'cost' | 'hitl' | 'insights' | 'playground' | 'knowledge'>('home');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('epb-theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
+
   const [isLiveSessionOpen, setIsLiveSessionOpen] = useState(false);
 
-  // Connect to Live Simulation Engine
   const { 
     agents, 
     setAgents, 
@@ -33,28 +38,32 @@ const App: React.FC = () => {
     metrics, 
     chartData,
     approveHitl,
-    rejectHitl
+    rejectHitl,
+    addTrace // Now exposed for the playground loop
   } = useSimulation();
 
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(agents[0]);
 
-  // Inject CSS variables for theming based on state
   useEffect(() => {
     const root = document.documentElement;
+    localStorage.setItem('epb-theme', theme);
+    
+    root.classList.add('transition-theme');
+    
     if (theme === 'dark') {
-      root.style.setProperty('--bg-main', '#020617'); // slate-950
-      root.style.setProperty('--bg-panel', '#0f172a'); // slate-900
-      root.style.setProperty('--bg-element', '#1e293b'); // slate-800
-      root.style.setProperty('--text-primary', '#f8fafc'); // slate-50
-      root.style.setProperty('--text-secondary', '#94a3b8'); // slate-400
-      root.style.setProperty('--border-color', '#1e293b'); // slate-800
+      root.style.setProperty('--bg-main', '#020617');
+      root.style.setProperty('--bg-panel', '#0f172a');
+      root.style.setProperty('--bg-element', '#1e293b');
+      root.style.setProperty('--text-primary', '#f8fafc');
+      root.style.setProperty('--text-secondary', '#94a3b8');
+      root.style.setProperty('--border-color', '#1e293b');
     } else {
-      root.style.setProperty('--bg-main', '#f8fafc'); // slate-50
-      root.style.setProperty('--bg-panel', '#ffffff'); // white
-      root.style.setProperty('--bg-element', '#e2e8f0'); // slate-200
-      root.style.setProperty('--text-primary', '#0f172a'); // slate-950
-      root.style.setProperty('--text-secondary', '#64748b'); // slate-500
-      root.style.setProperty('--border-color', '#cbd5e1'); // slate-300
+      root.style.setProperty('--bg-main', '#f8fafc');
+      root.style.setProperty('--bg-panel', '#ffffff');
+      root.style.setProperty('--bg-element', '#f1f5f9');
+      root.style.setProperty('--text-primary', '#0f172a');
+      root.style.setProperty('--text-secondary', '#475569');
+      root.style.setProperty('--border-color', '#e2e8f0');
     }
   }, [theme]);
 
@@ -64,8 +73,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[var(--bg-main)] text-[var(--text-primary)] overflow-hidden transition-colors duration-300">
-      {/* Sidebar Navigation */}
+    <div className="flex h-screen w-full bg-[var(--bg-main)] text-[var(--text-primary)] overflow-hidden transition-colors duration-500 ease-in-out">
       <Sidebar 
         currentView={view} 
         onViewChange={setView} 
@@ -75,27 +83,20 @@ const App: React.FC = () => {
         onThemeChange={setTheme}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Top Header */}
-        <header className="h-16 border-b border-[var(--border-color)] flex items-center justify-between px-8 bg-[var(--bg-panel)] backdrop-blur-md sticky top-0 z-10 transition-colors duration-300">
+        <header className="h-16 border-b border-[var(--border-color)] flex items-center justify-between px-8 bg-[var(--bg-panel)]/80 backdrop-blur-md sticky top-0 z-10 transition-all duration-500">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-tight">EPB PRO DASHBOARD <span className="text-blue-500 font-normal">/ {view.toUpperCase()}</span></h1>
+            <h1 className="text-xl font-bold tracking-tight uppercase">EPB OS <span className="text-blue-500 font-normal">/ {view}</span></h1>
           </div>
           <div className="flex items-center gap-6">
             <AlertCenter alerts={alerts} />
             
-            <Tooltip content="Documentation Available: README.md & TECHNICAL_GUIDE.md" position="bottom">
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 rounded-full text-[10px] font-bold text-blue-400 border border-blue-500/20 cursor-help uppercase tracking-widest">
-                DOCS V1.2
+            <Tooltip content="System Health: Optimal" position="bottom">
+              <div className="flex items-center gap-2 px-3 py-1 bg-green-500/10 rounded-full text-[10px] font-bold text-green-500 border border-green-500/20 cursor-help uppercase tracking-widest">
+                v1.2 Stable
               </div>
             </Tooltip>
-            <Tooltip content="Health check: Connected to EPB Global Orchestrator" position="bottom">
-              <div className="flex items-center gap-2 px-3 py-1 bg-[var(--bg-element)] rounded-full text-xs font-medium border border-[var(--border-color)] cursor-help">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                LIVE DATA
-              </div>
-            </Tooltip>
+            
             <Tooltip content={`Active Session: ${role.toUpperCase()}`} position="bottom">
               <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
                 <span className="text-sm font-medium">{role.toUpperCase()}</span>
@@ -105,7 +106,6 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Dynamic Viewport with Error Boundary */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           <ErrorBoundary>
             {view === 'home' && (
@@ -140,18 +140,18 @@ const App: React.FC = () => {
               />
             )}
             {view === 'insights' && <AiInsights agents={agents} />}
-            {view === 'playground' && <AgentPlayground />}
+            {view === 'playground' && <AgentPlayground onAddTrace={addTrace} />}
             {view === 'knowledge' && <KnowledgeBase />}
           </ErrorBoundary>
         </div>
 
-        {/* Global Copilot Overlay */}
         <GlobalCopilot 
             onNavigate={(v) => setView(v as any)} 
             onLaunchLive={() => setIsLiveSessionOpen(true)}
+            agents={agents}
+            metrics={metrics}
         />
         
-        {/* Full Screen Live Session */}
         <LiveSessionOverlay 
             isOpen={isLiveSessionOpen}
             onClose={() => setIsLiveSessionOpen(false)}

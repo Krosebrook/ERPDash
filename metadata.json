@@ -1,7 +1,9 @@
 {
-  "name": "EPB Enterprise Dashboard Pro",
+  "name": "EnterpriseProfileBuilder Enterprise Dashboard Pro",
   "description": "A high-fidelity production-grade dashboard for Enterprise Profile Builder (EPB), featuring multi-tenant metrics, real-time agent observability, cost governance, and Gemini-powered deep reasoning analysis.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera",
+    "geolocation"
   ]
 }
