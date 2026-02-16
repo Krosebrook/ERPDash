@@ -1,5 +1,5 @@
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from "@google/genai";
-import { Agent, MetricData } from "../types";
+import { Agent } from "../types";
 
 // Tools available to the Live Agent
 const tools: FunctionDeclaration[] = [
@@ -37,8 +37,6 @@ const tools: FunctionDeclaration[] = [
 ];
 
 export class LiveSessionService {
-  private ai: GoogleGenAI;
-  private session: any = null;
   private inputContext: AudioContext | null = null;
   private outputContext: AudioContext | null = null;
   private outputNode: GainNode | null = null;
@@ -55,8 +53,8 @@ export class LiveSessionService {
 
   public onVolumeUpdate: ((vol: number) => void) | null = null;
 
-  constructor(apiKey: string) {
-    this.ai = new GoogleGenAI({ apiKey });
+  constructor() {
+    // ai instance is created fresh in connect() per guidelines
   }
 
   bindActions(
@@ -77,7 +75,10 @@ export class LiveSessionService {
 
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    const sessionPromise = this.ai.live.connect({
+    // CRITICAL: Always create a new GoogleGenAI instance right before making an API call
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+    const sessionPromise = ai.live.connect({
       model: 'gemini-2.5-flash-native-audio-preview-12-2025',
       config: {
         responseModalities: [Modality.AUDIO],
@@ -99,8 +100,6 @@ export class LiveSessionService {
         onerror: (err) => console.error('[Live] Error', err)
       }
     });
-
-    this.session = await sessionPromise;
   }
 
   private startAudioInput(sessionPromise: Promise<any>) {
@@ -126,8 +125,9 @@ export class LiveSessionService {
       }
       
       const uint8 = new Uint8Array(pcm16.buffer);
-      const base64 = this.arrayBufferToBase64(uint8);
+      const base64 = this.encode(uint8);
 
+      // CRITICAL: Solely rely on sessionPromise resolves
       sessionPromise.then(session => {
         session.sendRealtimeInput({
           media: {
@@ -152,7 +152,6 @@ export class LiveSessionService {
     // 2. Handle Tool Calls
     const toolCall = message.toolCall;
     if (toolCall) {
-        const responses: any[] = [];
         for (const call of toolCall.functionCalls) {
             console.log('[Live] Tool Call:', call.name, call.args);
             let result: Record<string, any> = { status: 'ok' };
@@ -172,26 +171,27 @@ export class LiveSessionService {
                 result = { status: 'error', message: e.message };
             }
 
-            responses.push({
-                id: call.id,
-                name: call.name,
-                response: { result }
+            // CRITICAL: Send tool response back to model via sessionPromise
+            sessionPromise.then(session => {
+                session.sendToolResponse({ 
+                    functionResponses: {
+                        id: call.id,
+                        name: call.name,
+                        response: { result: result },
+                    }
+                });
             });
         }
-
-        // Send Tool Response
-        const session = await sessionPromise;
-        session.sendToolResponse({ functionResponses: responses });
     }
   }
 
   private async queueAudio(base64: string) {
     if (!this.outputContext || !this.outputNode) return;
 
-    const arrayBuffer = this.base64ToArrayBuffer(base64);
-    const audioBuffer = await this.decodeAudioData(new Uint8Array(arrayBuffer), this.outputContext);
+    const audioBytes = this.decode(base64);
+    const audioBuffer = await this.decodeAudioData(audioBytes, this.outputContext, 24000, 1);
 
-    // Schedule
+    // Schedule: Always schedule the next audio chunk to start at the exact end time of the previous one
     this.nextStartTime = Math.max(this.nextStartTime, this.outputContext.currentTime);
     
     const source = this.outputContext.createBufferSource();
@@ -205,7 +205,7 @@ export class LiveSessionService {
     source.onended = () => this.sources.delete(source);
   }
 
-  // --- Utils ---
+  // --- Utils Following Coding Guidelines ---
 
   async disconnect() {
     this.stream?.getTracks().forEach(t => t.stop());
@@ -214,32 +214,43 @@ export class LiveSessionService {
     this.inputContext?.close();
     this.outputContext?.close();
     this.sources.forEach(s => s.stop());
-    // No explicit close on session object in current SDK typings, but we drop ref
-    this.session = null;
   }
 
-  private arrayBufferToBase64(buffer: Uint8Array): string {
+  private encode(bytes: Uint8Array): string {
     let binary = '';
-    const len = buffer.byteLength;
-    for (let i = 0; i < len; i++) binary += String.fromCharCode(buffer[i]);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
     return btoa(binary);
   }
 
-  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+  private decode(base64: string): Uint8Array {
     const binary = atob(base64);
     const len = binary.length;
     const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
   }
 
-  private async decodeAudioData(data: Uint8Array, ctx: AudioContext): Promise<AudioBuffer> {
-      const dataInt16 = new Int16Array(data.buffer);
-      const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
-      const channelData = buffer.getChannelData(0);
-      for (let i = 0; i < dataInt16.length; i++) {
-          channelData[i] = dataInt16[i] / 32768.0;
+  private async decodeAudioData(
+    data: Uint8Array,
+    ctx: AudioContext,
+    sampleRate: number,
+    numChannels: number,
+  ): Promise<AudioBuffer> {
+    const dataInt16 = new Int16Array(data.buffer);
+    const frameCount = dataInt16.length / numChannels;
+    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+    for (let channel = 0; channel < numChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      for (let i = 0; i < frameCount; i++) {
+        channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
       }
-      return buffer;
+    }
+    return buffer;
   }
 }

@@ -24,7 +24,7 @@ export interface MetricData {
 export interface Agent {
   id: string;
   name: string;
-  description?: string; // New field
+  description?: string;
   type: AgentType;
   status: 'active' | 'suspended' | 'draft';
   successRate: number;
@@ -32,9 +32,8 @@ export interface Agent {
   totalTokens: number;
   costUSD: number;
   hitlPending: number;
-  // Configuration fields
   model?: string;
-  temperature?: number; // New field
+  temperature?: number;
   systemInstruction?: string;
 }
 
@@ -59,12 +58,20 @@ export interface StrategicVariation {
   resourceRequirements: string;
 }
 
+export interface GroundingSource {
+  web?: {
+    uri: string;
+    title?: string;
+  };
+}
+
 export interface StudioDeliverable {
   content: string;
   reasoningPath?: string;
   images?: string[];
   audioUrl?: string;
   variations?: StrategicVariation[];
+  sources?: GroundingSource[];
 }
 
 export interface AuditLog {
@@ -75,8 +82,6 @@ export interface AuditLog {
   status: 'success' | 'failure';
   timestamp: string;
 }
-
-// --- NEW TYPES ---
 
 export interface ChatMessage {
   id: string;

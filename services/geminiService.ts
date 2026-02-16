@@ -1,10 +1,21 @@
-
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
+import { StrategicVariation, GroundingSource } from "../types";
+
+// Define ChartConfig interface to be used by visualization components
+export interface ChartConfig {
+  title: string;
+  type: 'bar' | 'line' | 'area' | 'pie';
+  description: string;
+  xAxisKey: string;
+  dataKeys: string[];
+  colors: string[];
+  data: any[];
+}
 
 const getAI = () => {
   const key = process.env.API_KEY;
   if (!key) {
-    throw new Error("API Key is missing. Please configure process.env.API_KEY.");
+    throw new Error("API Key is missing. The application requires a valid API_KEY environment variable.");
   }
   return new GoogleGenAI({ apiKey: key });
 };
@@ -31,14 +42,27 @@ const cleanAndParseJson = (text: string) => {
   }
 };
 
+/**
+ * Enhanced logging wrapper that tracks performance and token consumption.
+ */
 const withLogging = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
   const start = performance.now();
   try {
     const result = await fn();
-    console.log(`[Gemini] ${name} - Success (${(performance.now() - start).toFixed(0)}ms)`);
+    const duration = (performance.now() - start).toFixed(0);
+    
+    // Attempt to extract usage metadata if the result contains a Gemini response object
+    let usageLog = "";
+    const possibleResponse = (result as any)?._rawResponse || result;
+    if (possibleResponse && typeof possibleResponse === 'object' && 'usageMetadata' in possibleResponse) {
+      const usage = possibleResponse.usageMetadata;
+      usageLog = ` | Tokens: ${usage.totalTokenCount} (P:${usage.promptTokenCount}/C:${usage.candidatesTokenCount})`;
+    }
+
+    console.log(`[Gemini SDK Telemetry] ${name} - SUCCESS (${duration}ms)${usageLog}`);
     return result;
   } catch (error) {
-    console.error(`[Gemini] ${name} - Failed`, error);
+    console.error(`[Gemini SDK Telemetry] ${name} - FAILED`, error);
     throw error;
   }
 };
@@ -51,19 +75,20 @@ export const generateStudioDeliverable = async (
     type: DeliverableType, 
     prompt: string, 
     includeImages: boolean = false,
-    tone: string = 'Professional'
+    tone: string = 'Professional',
+    imageSize: '1K' | '2K' | '4K' = '1K'
 ) => {
   return withLogging('generateStudioDeliverable', async () => {
     const ai = getAI();
     const model = 'gemini-3-pro-preview';
     
-    const baseInstruction = `Tone: ${tone}. Maintain high fidelity and depth.`;
+    const baseInstruction = `Tone: ${tone}. Focus on high-fidelity, production-grade output. Ground all claims in real-world data.`;
     
     const systemInstructions: Record<DeliverableType, string> = {
-      report: `${baseInstruction} You are a Principal Consultant. Provide an exhaustive executive report with deep reasoning blocks included in a 'THOUGHTS:' prefix section.`,
-      code: `${baseInstruction} You are a Senior Staff Engineer. Provide production-ready architecture and implementation code with reasoning on patterns used. Ensure code is high-performance.`,
-      presentation: `${baseInstruction} You are a Head of Design. Provide slide-by-slide outlines and visual prompts for AI image generation. Focus on storytelling.`,
-      data_model: `${baseInstruction} You are a Lead Data Architect. Provide ERDs (as Mermaid/Markdown) and schema validation rules. Focus on scalability and integrity.`
+      report: `${baseInstruction} You are a Principal Strategy Consultant. Provide an exhaustive executive report with deep reasoning blocks. Use Google Search to ground news and trends.`,
+      code: `${baseInstruction} You are a Senior Staff Engineer. Provide production-ready, highly optimized code and architectural designs with reasoning on selected patterns.`,
+      presentation: `${baseInstruction} You are a Head of Design. Provide a slide-by-slide visual strategy and content outline for an executive pitch deck.`,
+      data_model: `${baseInstruction} You are a Lead Data Architect. Provide sophisticated ERDs and schema documentation with focus on scalability.`
     };
 
     const response = await ai.models.generateContent({
@@ -72,7 +97,8 @@ export const generateStudioDeliverable = async (
       config: {
         systemInstruction: systemInstructions[type],
         temperature: 0.3,
-        thinkingConfig: { thinkingBudget: 8192 }
+        thinkingConfig: { thinkingBudget: 16384 },
+        tools: [{ googleSearch: {} }]
       }
     });
     
@@ -81,405 +107,29 @@ export const generateStudioDeliverable = async (
 
     if (includeImages) {
       try {
-        images = await generateImageVariations(prompt);
+        images = await generateImageVariations(prompt, imageSize);
       } catch (e) {
-        console.warn("Image generation failed, continuing with text-only.", e);
+        console.warn("Image variations failed, continuing with text-only.", e);
       }
     }
 
     return {
       content: text,
-      images: images
+      images: images,
+      sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [],
+      _rawResponse: response // Allow logger to see metadata
     };
   });
 };
 
-export const deepResearchReport = async (topic: string) => {
-  return withLogging('deepResearchReport', async () => {
-    const ai = getAI();
-    // Use search tools for grounding, then a reasoning model to synthesize
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Conduct deep research on: ${topic}. Synthesize findings into a strategic briefing. Cite sources explicitly.`,
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingBudget: 4096 } // Reasoning + Grounding
-      }
-    });
-
-    return {
-      content: response.text || "Research compilation failed.",
-      sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
-    };
-  });
-};
-
-// --- AGENT CONFIGURATION GENERATOR ---
-
-export interface AgentConfiguration {
-    systemInstruction: string;
-    userPrompt: string;
-    temperature: number;
-    model: string;
-    name: string;
-    description: string;
-}
-
-export const generateAgentConfiguration = async (intent?: string): Promise<AgentConfiguration> => {
-    return withLogging('generateAgentConfiguration', async () => {
-        const ai = getAI();
-        
-        const basePrompt = intent 
-            ? `Refine and optimize a high-fidelity enterprise agent configuration for this specific goal: "${intent}". Ensure strict adherence to enterprise standards.`
-            : `Create a unique, sophisticated, and high-value Enterprise Agent configuration for a randomly selected niche domain.
-               
-               Possible Domains (Select one or similar):
-               - Advanced Cybersecurity (e.g. Zero-Day Threat Hunter, Packet Forensics)
-               - Complex Legal Tech (e.g. Patent Claim Analysis, M&A Contract Risk Assessor)
-               - Computational Biology (e.g. CRISPR Target Validator, Protein Folding Simulator)
-               - Fintech Compliance (e.g. Anti-Money Laundering Graph Analyst, Basel III Liquidity Optimizer)
-               - Industrial IoT (e.g. Predictive Maintenance for Jet Engines, SCADA Anomaly Detection)
-               
-               The Agent must be highly specialized, not generic. Avoid generic customer support or writing assistants.`;
-
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview', // Upgraded to Pro for better persona generation
-            contents: `${basePrompt}
-            
-            Return a JSON object defining the agent's full configuration.
-            
-            Requirements:
-            1. 'systemInstruction': A deep, multi-paragraph system prompt. It MUST include sections for: 
-               - ROLE & PERSONA: Define a specific expert identity (e.g. "Senior Forensic Accountant").
-               - CORE OBJECTIVES: What is the primary mission?
-               - CONSTRAINTS & COMPLIANCE: (e.g. "Do not infer PII", "Adhere to NIST 800-53").
-               - RESPONSE STYLE: (e.g. "Concise JSON", "Detailed Technical Report", "Socratic Questioning").
-               
-            2. 'userPrompt': A challenging, complex edge-case scenario to test the agent's reasoning capabilities. 
-               Do not ask simple questions. Provide a scenario with ambiguity or conflicting data points that requires the agent to think.
-               
-            3. 'model': Select the best fit from ['gemini-3-pro-preview', 'gemini-3-flash-preview']. 
-               - Use 'gemini-3-pro-preview' for heavy reasoning/analysis.
-               - Use 'gemini-3-flash-preview' for high-speed/lower complexity.
-               
-            4. 'temperature': A number between 0 and 1. Lower for strict tasks, higher for creative ones.
-            
-            5. 'name': A creative, professional name for the agent (e.g. "Sentiel-9", "LexAI-Pro", "BioGraph-X").
-            
-            6. 'description': A short executive summary of what this agent does.
-            `,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING, description: "A creative name for the agent" },
-                        description: { type: Type.STRING, description: "Short description of what it does" },
-                        systemInstruction: { type: Type.STRING, description: "Detailed system prompt with Role, Objective, Constraints" },
-                        userPrompt: { type: Type.STRING, description: "Complex edge-case test scenario" },
-                        model: { type: Type.STRING, enum: ['gemini-3-pro-preview', 'gemini-3-flash-preview'] },
-                        temperature: { type: Type.NUMBER }
-                    },
-                    required: ["name", "description", "systemInstruction", "userPrompt", "model", "temperature"]
-                }
-            }
-        });
-
-        return cleanAndParseJson(response.text || "{}");
-    });
-};
-
-// --- COPILOT & FUNCTION CALLING ---
-
-const navToolDeclaration: FunctionDeclaration = {
-    name: 'navigate_app',
-    description: 'Navigate to a specific section of the application.',
-    parameters: {
-      type: Type.OBJECT,
-      properties: {
-        view: {
-          type: Type.STRING,
-          enum: ['home', 'observability', 'cost', 'hitl', 'insights', 'playground', 'knowledge'],
-          description: 'The target view ID.'
-        }
-      },
-      required: ['view']
-    }
-};
-
-export const chatWithSystemCopilot = async (
-    message: string, 
-    history: any[], 
-    onNavigate: (view: string) => void
-): Promise<string> => {
-    return withLogging('chatWithSystemCopilot', async () => {
-        const ai = getAI();
-        
-        // 1. Initial Request with Tools
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: [
-                ...history,
-                { role: 'user', parts: [{ text: message }] }
-            ],
-            config: {
-                systemInstruction: "You are the EPB OS Copilot. You control the dashboard. Use tools to navigate or fetch data. Be concise and helpful.",
-                tools: [{ functionDeclarations: [navToolDeclaration] }]
-            }
-        });
-
-        const call = response.functionCalls?.[0];
-        
-        // 2. Handle Function Call
-        if (call && call.name === 'navigate_app') {
-            const targetView = (call.args as any).view;
-            onNavigate(targetView);
-            
-            // 3. Send Tool Response back to model
-            const toolResponse = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [
-                    ...history,
-                    { role: 'user', parts: [{ text: message }] },
-                    { role: 'model', parts: [{ functionCall: call }] },
-                    { role: 'function', parts: [{ functionResponse: { name: 'navigate_app', response: { result: 'success', view: targetView } } }] }
-                ]
-            });
-            return toolResponse.text || `Navigated to ${targetView}.`;
-        }
-
-        return response.text || "I processed that.";
-    });
-};
-
-// --- KNOWLEDGE BASE SIMULATION ---
-
-export const simulateKnowledgeRetrieval = async (query: string) => {
-    return withLogging('simulateKnowledgeRetrieval', async () => {
-        const ai = getAI();
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Simulate a RAG retrieval for the query: "${query}". 
-            Return a JSON object with 'chunks' array containing simulated relevant text segments and 'relevanceScore' (0-1).`,
-            config: {
-                responseMimeType: "application/json",
-                tools: [{ googleSearch: {} }] // Hybrid search
-            }
-        });
-        return cleanAndParseJson(response.text || "{}");
-    });
-};
-
-// --- MULTIMODAL GENERATION ---
-
-export const generateConceptImage = async (prompt: string, style: string = 'photorealistic'): Promise<string | null> => {
-  return withLogging('generateConceptImage', async () => {
-    const ai = getAI();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents: { 
-        parts: [{ 
-            text: `${prompt} . Style: ${style}, 8k resolution, highly detailed, professional lighting, corporate aesthetics.` 
-        }] 
-      },
-      config: {
-        imageConfig: { 
-            aspectRatio: "16:9",
-            imageSize: "1K"
-        }
-      }
-    });
-
-    for (const part of response.candidates[0].content.parts) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
-    }
-    return null;
-  });
-};
-
-export const generateImageVariations = async (prompt: string): Promise<string[]> => {
-    return withLogging('generateImageVariations', async () => {
-        const variations = [
-            { style: 'photorealistic cinematic', suffix: 'cinematic lighting, depth of field' },
-            { style: 'minimalist vector art', suffix: 'clean lines, flat design, technical blue' }
-        ];
-
-        const promises = variations.map(v => 
-            generateConceptImage(`${prompt}, ${v.suffix}`, v.style)
-        );
-
-        const results = await Promise.allSettled(promises);
-        
-        return results
-            .filter(r => r.status === 'fulfilled' && r.value !== null)
-            .map(r => (r as PromiseFulfilledResult<string>).value);
-    });
-}
-
-// --- VEO VIDEO GENERATION ---
-
-export const generateVeoVideo = async (prompt: string): Promise<string | null> => {
-  if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-          const success = await window.aistudio.openSelectKey();
-      }
-  }
-
-  const ai = getAI(); 
-
-  return withLogging('generateVeoVideo', async () => {
-    let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-fast-generate-preview',
-      prompt: `${prompt}. Cinematic, high quality, 4k, professional corporate video.`,
-      config: {
-        numberOfVideos: 1,
-        resolution: '1080p',
-        aspectRatio: '16:9'
-      }
-    });
-
-    while (!operation.done) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      operation = await ai.operations.getVideosOperation({ operation: operation });
-    }
-
-    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!downloadLink) throw new Error("Video generation failed to return a URI.");
-
-    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
-  });
-};
-
-// --- AUDIO / PODCAST ---
-
-export const generatePodcastAudio = async (topic: string, context: string) => {
-  return withLogging('generatePodcastAudio', async () => {
-    const ai = getAI();
-    
-    const dialoguePrompt = `Generate a 2-minute podcast script discussion about: "${topic}". 
-    Context: ${context}.
-    Speakers: 
-    - Host (Kore): Energetic, curious, professional.
-    - Expert (Puck): Deeply technical, calm, authoritative.
-    Format the output as a natural conversation.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: dialoguePrompt }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-            multiSpeakerVoiceConfig: {
-              speakerVoiceConfigs: [
-                    {
-                        speaker: 'Host',
-                        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-                    },
-                    {
-                        speaker: 'Expert',
-                        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-                    }
-              ]
-            }
-        }
-      }
-    });
-    
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) return null;
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    const audioBytes = decodeBase64(base64Audio);
-    const audioBuffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
-    
-    return { audioBuffer, audioContext };
-  });
-};
-
-export const speakReport = async (text: string) => {
-  return withLogging('speakReport', async () => {
-    const ai = getAI();
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: text.slice(0, 1000) }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-      },
-    });
-    
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) return null;
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-    const audioBytes = decodeBase64(base64Audio);
-    const audioBuffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
-    
-    return { audioBuffer, audioContext };
-  });
-};
-
-// --- DATA VISUALIZATION ---
-
-export interface ChartConfig {
-    title: string;
-    type: 'bar' | 'line' | 'area' | 'pie';
-    data: any[];
-    dataKeys: string[];
-    xAxisKey: string;
-    colors: string[];
-    description: string;
-}
-
-export const generateLiveChart = async (query: string): Promise<ChartConfig> => {
-    return withLogging('generateLiveChart', async () => {
-        const ai = getAI();
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview', // Upgraded to Pro for complex logic
-            contents: `Generate a High-Fidelity Data Visualization dataset for: ${query}. 
-            Return a JSON object compatible with Recharts. 
-            Ensure at least 7 data points.
-            Use professional corporate colors (Blues, Teals, Slates).`,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING },
-                        type: { type: Type.STRING, enum: ['bar', 'line', 'area', 'pie'] },
-                        description: { type: Type.STRING },
-                        xAxisKey: { type: Type.STRING },
-                        dataKeys: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        colors: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        data: { 
-                            type: Type.ARRAY, 
-                            items: { type: Type.OBJECT, properties: {}, description: "Array of data objects" } 
-                        }
-                    },
-                    required: ["title", "type", "data", "xAxisKey", "dataKeys", "colors"]
-                }
-            }
-        });
-
-        return cleanAndParseJson(response.text || "{}");
-    });
-}
-
-// --- UTILS ---
-
-export const exploreConceptVariations = async (concept: string) => {
+export const exploreConceptVariations = async (concept: string): Promise<StrategicVariation[]> => {
   return withLogging('exploreConceptVariations', async () => {
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Perform strategic branching for: ${concept}. Create 3 distinct variations: 1. Exponential Scale, 2. Maximum Security, 3. Peak Efficiency. Ensure high level of detail in pros/cons.`,
+      contents: `Branch strategic variations for the following concept: "${concept}". Return exactly 3 distinct, high-fidelity strategic variants. Each should explore a different risk/reward profile.`,
       config: {
-        thinkingConfig: { thinkingBudget: 4096 },
+        thinkingConfig: { thinkingBudget: 8192 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -494,45 +144,355 @@ export const exploreConceptVariations = async (concept: string) => {
               riskScore: { type: Type.NUMBER },
               resourceRequirements: { type: Type.STRING }
             },
-            required: ["variantName", "strategicFocus", "pros", "cons", "riskScore"]
+            required: ["variantName", "strategicFocus", "pros", "cons", "riskScore", "implementationTimeline", "resourceRequirements"]
           }
         }
       }
     });
 
-    return cleanAndParseJson(response.text || "[]");
+    const parsed = cleanAndParseJson(response.text || "[]");
+    // Attach raw response for telemetry
+    (parsed as any)._rawResponse = response;
+    return parsed;
   });
 };
 
-export const analyzeMetrics = async (metrics: any) => {
-  return withLogging('analyzeMetrics', async () => {
+export const generateConceptImage = async (prompt: string, style: string = 'photorealistic', size: '1K' | '2K' | '4K' = '1K'): Promise<string | null> => {
+  return withLogging('generateConceptImage', async () => {
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Analyze these EPB metrics with executive depth: ${JSON.stringify(metrics)}`,
-      config: { 
-          thinkingConfig: { thinkingBudget: 4000 }
+      model: 'gemini-3-pro-image-preview',
+      contents: { 
+        parts: [{ 
+            text: `${prompt} . Visual Style: ${style}, high-fidelity corporate aesthetics, 8k resolution, crisp detail.` 
+        }] 
+      },
+      config: {
+        imageConfig: { 
+            aspectRatio: "16:9",
+            imageSize: size
+        }
       }
     });
-    return response.text || "Analysis unavailable.";
+
+    let data = null;
+    for (const part of response.candidates[0].content.parts) {
+      if (part.inlineData) {
+        data = `data:image/png;base64,${part.inlineData.data}`;
+        break;
+      }
+    }
+    
+    if (data) (data as any)._rawResponse = response;
+    return data;
   });
 };
 
-export const getComplianceUpdate = async () => {
-  return withLogging('getComplianceUpdate', async () => {
+export const generateImageVariations = async (prompt: string, size: '1K' | '2K' | '4K' = '1K'): Promise<string[]> => {
+    const variations = [
+        { style: 'cinematic photorealistic', suffix: 'ultra-high detail, professional lighting, masterpiece' },
+        { style: 'minimalist technical blueprint', suffix: 'clean lines, isometric view, architectural style' }
+    ];
+
+    const promises = variations.map(v => 
+        generateConceptImage(`${prompt}, ${v.suffix}`, v.style, size)
+    );
+
+    const results = await Promise.allSettled(promises);
+    
+    return results
+        .filter(r => r.status === 'fulfilled' && r.value !== null)
+        .map(r => (r as PromiseFulfilledResult<string>).value);
+};
+
+export const deepResearchReport = async (topic: string) => {
+  return withLogging('deepResearchReport', async () => {
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: "EU AI Act Compliance status 2025 and NIST AI RMF updates.",
-      config: { 
-          tools: [{ googleSearch: {} }] 
+      contents: `Perform an exhaustive deep research analysis on: ${topic}. Ground all findings in real-time data and news. Include multiple authoritative sources.`,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingBudget: 12288 }
       }
     });
+
     return {
-      text: response.text || "No compliance data.",
-      sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+      content: response.text || "",
+      sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [],
+      _rawResponse: response
     };
   });
+};
+
+export const chatWithSystemCopilot = async (
+    message: string, 
+    history: any[], 
+    onNavigate: (view: string) => void
+): Promise<string> => {
+    return withLogging('chatWithSystemCopilot', async () => {
+        const ai = getAI();
+        
+        const navTool: FunctionDeclaration = {
+            name: 'navigate_app',
+            description: 'Navigate the user to a specific section of the dashboard.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                view: {
+                  type: Type.STRING,
+                  enum: ['home', 'observability', 'cost', 'hitl', 'insights', 'playground', 'knowledge'],
+                  description: 'Target view destination.'
+                }
+              },
+              required: ['view']
+            }
+        };
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: [
+                ...history,
+                { role: 'user', parts: [{ text: message }] }
+            ],
+            config: {
+                systemInstruction: "You are the EPB OS Copilot. Use navigation tools when asked. Be concise and professional.",
+                tools: [{ functionDeclarations: [navTool] }]
+            }
+        });
+
+        const call = response.functionCalls?.[0];
+        let resultText = response.text || "Processed.";
+        
+        if (call && call.name === 'navigate_app') {
+            const targetView = (call.args as any).view;
+            onNavigate(targetView);
+            resultText = `Navigating to ${targetView.toUpperCase()} view.`;
+        }
+
+        (resultText as any)._rawResponse = response;
+        return resultText;
+    });
+};
+
+export const generateVeoVideo = async (prompt: string) => {
+  const ai = getAI(); 
+  return withLogging('generateVeoVideo', async () => {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: `${prompt}. High fidelity corporate cinematic video.`,
+      config: {
+        numberOfVideos: 1,
+        resolution: '1080p',
+        aspectRatio: '16:9'
+      }
+    });
+
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!downloadLink) throw new Error("Video generation failed.");
+
+    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    const blob = await response.blob();
+    return {
+      url: URL.createObjectURL(blob),
+      operation: operation
+    };
+  });
+};
+
+export const extendVeoVideo = async (previousOperation: any, prompt: string) => {
+  const ai = getAI();
+  return withLogging('extendVeoVideo', async () => {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt: prompt || 'The scene continues with more detailed motion and cinematic progression.',
+      video: previousOperation.response?.generatedVideos?.[0]?.video,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p', // Extensions are limited to 720p
+        aspectRatio: '16:9'
+      }
+    });
+
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!downloadLink) throw new Error("Video extension failed.");
+
+    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+    const blob = await response.blob();
+    return {
+      url: URL.createObjectURL(blob),
+      operation: operation
+    };
+  });
+};
+
+// Returns a ChartConfig object for data visualization
+export const generateLiveChart = async (query: string): Promise<ChartConfig> => {
+    return withLogging('generateLiveChart', async () => {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: `Generate a high-fidelity data visualization dataset for: ${query}. Include multiple data points.`,
+            config: {
+                responseMimeType: "application/json",
+                thinkingConfig: { thinkingBudget: 4096 },
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING },
+                        type: { type: Type.STRING, enum: ['bar', 'line', 'area', 'pie'] },
+                        description: { type: Type.STRING },
+                        xAxisKey: { type: Type.STRING },
+                        dataKeys: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        colors: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        data: { type: Type.ARRAY, items: { type: Type.OBJECT } }
+                    },
+                    required: ["title", "type", "data", "xAxisKey", "dataKeys", "colors"]
+                }
+            }
+        });
+
+        const parsed = cleanAndParseJson(response.text || "{}");
+        (parsed as any)._rawResponse = response;
+        return parsed;
+    });
+};
+
+export const speakReport = async (text: string) => {
+  return withLogging('speakReport', async () => {
+    const ai = getAI();
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: text.slice(0, 500) }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+      },
+    });
+    
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) return null;
+
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    const audioBytes = decodeBase64(base64Audio);
+    const audioBuffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
+    
+    return { audioBuffer, audioContext, _rawResponse: response };
+  });
+};
+
+export const generatePodcastAudio = async (topic: string, context: string) => {
+  return withLogging('generatePodcastAudio', async () => {
+    const ai = getAI();
+    const prompt = `TTS the following conversation between Joe (Tech Strategist) and Jane (Design Lead) about: ${topic}.
+      Context: ${context}
+      Joe: I've been reviewing the latest variations for ${topic}. The scalability looks promising.
+      Jane: I agree, Joe. The visual concepts we generated really highlight the professional fidelity.
+      Joe: Exactly. We need to focus on low-latency orchestration to ensure high-fidelity outputs across the fleet.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          multiSpeakerVoiceConfig: {
+            speakerVoiceConfigs: [
+              {
+                speaker: 'Joe',
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+              },
+              {
+                speaker: 'Jane',
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) return null;
+
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    const audioBytes = decodeBase64(base64Audio);
+    const audioBuffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
+
+    return { audioBuffer, audioContext, _rawResponse: response };
+  });
+};
+
+export const simulateKnowledgeRetrieval = async (query: string) => {
+  return withLogging('simulateKnowledgeRetrieval', async () => {
+    const ai = getAI();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Simulate high-fidelity RAG retrieval for: "${query}". Return relevant document chunks.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              source: { type: Type.STRING },
+              chunk: { type: Type.STRING },
+              score: { type: Type.NUMBER }
+            },
+            required: ["source", "chunk", "score"]
+          }
+        }
+      }
+    });
+
+    const parsed = cleanAndParseJson(response.text || "[]");
+    (parsed as any)._rawResponse = response;
+    return parsed;
+  });
+};
+
+export const generateAgentConfiguration = async (intent?: string) => {
+    return withLogging('generateAgentConfiguration', async () => {
+        const ai = getAI();
+        const basePrompt = intent 
+            ? `Optimize an enterprise agent configuration for: "${intent}".`
+            : `Create a unique Enterprise Agent configuration for a niche industrial domain.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: `${basePrompt} Return JSON configuration.`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        systemInstruction: { type: Type.STRING },
+                        userPrompt: { type: Type.STRING },
+                        model: { type: Type.STRING, enum: ['gemini-3-pro-preview', 'gemini-3-flash-preview'] },
+                        temperature: { type: Type.NUMBER }
+                    },
+                    required: ["name", "description", "systemInstruction", "userPrompt", "model", "temperature"]
+                }
+            }
+        });
+
+        const parsed = cleanAndParseJson(response.text || "{}");
+        (parsed as any)._rawResponse = response;
+        return parsed;
+    });
 };
 
 function decodeBase64(base64: string) {

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { LiveSessionService } from '../services/liveSessionService';
 import { Agent } from '../types';
@@ -22,7 +21,7 @@ const LiveSessionOverlay: React.FC<Props> = ({ isOpen, onClose, navigate, metric
       const init = async () => {
         try {
           setStatus('connecting');
-          const service = new LiveSessionService(process.env.API_KEY || '');
+          const service = new LiveSessionService();
           
           service.bindActions(
             navigate,

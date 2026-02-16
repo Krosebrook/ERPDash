@@ -1,4 +1,5 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+import React, { ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children?: ReactNode;
@@ -9,9 +10,14 @@ interface State {
   error: Error | null;
 }
 
+/**
+ * Standard React Error Boundary component.
+ */
+// Explicitly extending React.Component to ensure state, setState, and props are recognized by TypeScript.
 class ErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props);
+    // Initializing state property inherited from React.Component.
     this.state = {
       hasError: false,
       error: null,
@@ -26,11 +32,14 @@ class ErrorBoundary extends React.Component<Props, State> {
     console.error('Uncaught error:', error, errorInfo);
   }
 
+  // Arrow function to preserve 'this' context, ensuring setState is accessible from the React Component base class.
   handleRetry = () => {
+    // Calling setState inherited from React.Component.
     this.setState({ hasError: false, error: null });
   };
 
   render(): ReactNode {
+    // Accessing state inherited from React.Component.
     if (this.state.hasError) {
       return (
         <div className="min-h-[400px] w-full flex flex-col items-center justify-center p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center animate-in fade-in">
@@ -58,9 +67,11 @@ class ErrorBoundary extends React.Component<Props, State> {
               Reboot System
             </button>
           </div>
+          {/* Checking for error in state property. */}
           {this.state.error && (
             <div className="mt-8 p-4 bg-slate-950 rounded-lg border border-slate-800 w-full max-w-lg overflow-hidden text-left">
                 <code className="text-xs font-mono text-red-400 block break-all whitespace-pre-wrap">
+                    {/* Using toString on error object from state. */}
                     {this.state.error.toString()}
                 </code>
             </div>
@@ -69,6 +80,7 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
+    // Accessing props inherited from React.Component.
     return this.props.children;
   }
 }
