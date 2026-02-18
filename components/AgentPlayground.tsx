@@ -1,14 +1,15 @@
 
 import React, { useState } from 'react';
-import { generateStudioDeliverable, generateAgentConfiguration } from '../services/geminiService';
+import { generateStudioDeliverable, generateAgentConfiguration, generateInputSuggestion } from '../services/geminiService';
 import { TraceSpan } from '../types';
 import Tooltip from './Tooltip';
 
 interface Props {
   onAddTrace?: (trace: TraceSpan) => void;
+  onNavigate?: (view: string) => void;
 }
 
-const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
+const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
   const [systemPrompt, setSystemPrompt] = useState('You are a helpful AI assistant.');
   const [userPrompt, setUserPrompt] = useState('');
   const [model, setModel] = useState('gemini-3-flash-preview');
@@ -18,40 +19,52 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
   // State for AI Generation features
   const [loading, setLoading] = useState(false);
   const [generatingConfig, setGeneratingConfig] = useState(false);
+  const [suggestingField, setSuggestingField] = useState<string | null>(null);
+
   const [agentName, setAgentName] = useState('New Agent');
   const [niche, setNiche] = useState<string | null>(null);
   const [reasoningRecommended, setReasoningRecommended] = useState(false);
+  const [lastTraceId, setLastTraceId] = useState<string | null>(null);
 
   const handleRun = async () => {
     if (!userPrompt.trim()) return;
     setLoading(true);
+    setLastTraceId(null);
     const start = Date.now();
     try {
        const result = await generateStudioDeliverable('report', userPrompt + `\n[SYSTEM CONTEXT: ${systemPrompt}]`);
        setOutput(result.content);
        
-       // Log the trace to observability
+       // Log the high-fidelity trace to observability
        if (onAddTrace) {
            const duration = Date.now() - start;
+           const traceId = `tr-pg-${Date.now()}`;
            onAddTrace({
-               id: `trace-${Date.now()}`,
+               id: traceId,
                timestamp: new Date().toISOString(),
                spanName: `playground.${agentName.toLowerCase().replace(/\s+/g, '_')}`,
                durationMs: duration,
                status: 'ok',
-               tokens: Math.floor(result.content.length / 4), // Rough estimate
+               tokens: Math.floor(result.content.length / 4), 
                cost: duration * 0.0001,
-               attributes: { model, temperature, mode: 'playground' }
+               attributes: { 
+                 model, 
+                 temperature, 
+                 mode: 'playground',
+                 logic_snapshot: systemPrompt.substring(0, 100) + '...',
+                 is_experiment: true
+               }
            });
+           setLastTraceId(traceId);
        }
 
     } catch (e) {
        setOutput("Error executing playground prompt. Please verify your connection.");
        if (onAddTrace) {
            onAddTrace({
-               id: `trace-${Date.now()}`,
+               id: `trace-err-${Date.now()}`,
                timestamp: new Date().toISOString(),
-               spanName: `playground.${agentName.toLowerCase().replace(/\s+/g, '_')}`,
+               spanName: `playground.error`,
                durationMs: Date.now() - start,
                status: 'error',
                tokens: 0,
@@ -87,12 +100,30 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
       }
   };
 
+  const handleSuggestion = async (field: 'system' | 'user') => {
+    if (suggestingField) return;
+    setSuggestingField(field);
+    try {
+        const type = field === 'system' ? 'system_instruction' : 'user_prompt';
+        const current = field === 'system' ? systemPrompt : userPrompt;
+        const suggestion = await generateInputSuggestion(type, current, `Agent Name: ${agentName}. Niche: ${niche}`);
+        
+        if (suggestion) {
+            if (field === 'system') setSystemPrompt(suggestion);
+            else setUserPrompt(suggestion);
+        }
+    } catch (e) {
+        console.error("Suggestion failed", e);
+    } finally {
+        setSuggestingField(null);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-140px)] animate-in fade-in duration-500">
         {/* Configuration Panel */}
         <div className="bg-[var(--bg-panel)] border border-[var(--border-color)] rounded-3xl p-8 flex flex-col gap-8 overflow-y-auto relative transition-all duration-500 shadow-2xl">
             
-            {/* AI Generator Overlay */}
             {generatingConfig && (
                 <div className="absolute inset-0 z-30 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center text-blue-400 p-12 text-center animate-in zoom-in-95">
                     <div className="relative mb-10 scale-125">
@@ -105,11 +136,6 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-[0.4em] max-w-sm leading-relaxed">
                         Orchestrating niche industrial personas and generating complex edge-case scenarios...
                     </span>
-                    <div className="mt-8 flex gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce delay-75"></div>
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce delay-150"></div>
-                    </div>
                 </div>
             )}
 
@@ -192,7 +218,15 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
                 <div className="flex-1 flex flex-col min-h-[250px] relative">
                     <div className="flex justify-between items-center mb-3">
                         <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Core Persona Logic</label>
-                        <span className="text-[9px] text-slate-700 font-black uppercase tracking-[0.2em] italic">Strict Expert Boundary Enforced</span>
+                        <Tooltip content="Auto-complete system instructions">
+                            <button onClick={() => handleSuggestion('system')} disabled={!!suggestingField} className="text-blue-500 hover:text-white transition-colors disabled:opacity-50">
+                                {suggestingField === 'system' ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                )}
+                            </button>
+                        </Tooltip>
                     </div>
                     <textarea 
                         value={systemPrompt}
@@ -200,18 +234,19 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
                         className="w-full flex-1 bg-slate-950 border border-slate-800 rounded-[2rem] p-8 text-xs font-mono text-slate-300 focus:border-blue-600 outline-none resize-none leading-[1.8] shadow-inner selection:bg-blue-500/20"
                         placeholder="Define the core logic and constraints for your agent persona..."
                     />
-                    <div className="absolute bottom-4 right-8 flex items-center gap-2 opacity-30">
-                        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Logic Hub v2</span>
-                    </div>
                 </div>
                 
                  <div className="flex flex-col">
                     <div className="flex justify-between items-center mb-3">
                         <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Edge-Case Scenario Test</label>
-                        <Tooltip content="The model recommended this specific prompt to test logic boundaries.">
-                            <div className="p-1 rounded-md bg-slate-800 text-slate-500">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></div >
+                        <Tooltip content="Auto-complete test scenario">
+                            <button onClick={() => handleSuggestion('user')} disabled={!!suggestingField} className="text-blue-500 hover:text-white transition-colors disabled:opacity-50">
+                                {suggestingField === 'user' ? (
+                                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                )}
+                            </button>
                         </Tooltip>
                     </div>
                     <textarea 
@@ -247,11 +282,12 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
             <div className="flex justify-between items-center mb-8">
                 <div className="flex items-center gap-3">
                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Fidelity Trace Output</h3>
-                    <div className="flex gap-1.5">
-                        <div className="w-1 h-1 rounded-full bg-blue-500/40 animate-pulse"></div>
-                        <div className="w-1 h-1 rounded-full bg-blue-500/40 animate-pulse delay-150"></div>
-                        <div className="w-1 h-1 rounded-full bg-blue-500/40 animate-pulse delay-300"></div>
-                    </div>
+                    {lastTraceId && (
+                      <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full animate-in fade-in slide-in-from-left-2">
+                         <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                         <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Trace Dispatched</span>
+                      </div>
+                    )}
                 </div>
                 <div className="text-[9px] font-black text-slate-600 bg-slate-900 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">Read Only</div>
             </div>
@@ -283,16 +319,27 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace }) => {
                         <p className="text-[11px] font-black text-slate-400 font-mono">{model.replace('-preview', '').toUpperCase()}</p>
                     </div>
                 </div>
-                <button 
-                    disabled={!output}
-                    onClick={() => {
-                        navigator.clipboard.writeText(output);
-                    }}
-                    className="flex items-center gap-3 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all disabled:opacity-0 active:scale-95 border border-slate-700 shadow-xl"
-                >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                    Capture Buffer
-                </button>
+                <div className="flex gap-3">
+                  {onNavigate && output && (
+                    <button 
+                      onClick={() => onNavigate('observability')}
+                      className="flex items-center gap-3 px-6 py-3 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all active:scale-95 border border-blue-500/20"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                      Analyze Trace
+                    </button>
+                  )}
+                  <button 
+                      disabled={!output}
+                      onClick={() => {
+                          navigator.clipboard.writeText(output);
+                      }}
+                      className="flex items-center gap-3 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all disabled:opacity-0 active:scale-95 border border-slate-700 shadow-xl"
+                  >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                      Capture Buffer
+                  </button>
+                </div>
             </div>
         </div>
     </div>

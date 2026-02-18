@@ -23,14 +23,11 @@ const getAI = () => {
 const cleanAndParseJson = (text: string) => {
   if (!text) return null;
   try {
-    // 1. Remove Markdown code blocks
     let cleaned = text.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-    // 2. Remove any trailing/leading whitespace or non-JSON characters if possible
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("Failed to parse JSON:", text);
     try {
-      // 3. Fallback: Try to find the first '{' or '[' and last '}' or ']'
       const start = text.indexOf('[');
       const end = text.lastIndexOf(']');
       if (start !== -1 && end !== -1 && end > start) {
@@ -42,7 +39,7 @@ const cleanAndParseJson = (text: string) => {
         return JSON.parse(text.substring(startObj, endObj + 1));
       }
     } catch (e2) { /* ignore */ }
-    return null; // Return null instead of throwing for safer UI handling
+    return null;
   }
 };
 
@@ -61,6 +58,47 @@ const withLogging = async <T>(name: string, fn: () => Promise<T>): Promise<T> =>
 
 export type DeliverableType = 'report' | 'code' | 'presentation' | 'data_model' | 'financial_audit' | 'strategy_map';
 
+// --- NEW FEATURE: Field-Level Suggestions ---
+export const generateInputSuggestion = async (
+  contextType: 'strategic_intent' | 'system_instruction' | 'user_prompt' | 'hitl_note' | 'compliance_query' | 'target_audience' | 'constraints' | 'focus_area',
+  currentValue: string = "",
+  additionalContext: string = ""
+) => {
+  return withLogging('generateInputSuggestion', async () => {
+    const ai = getAI();
+    const prompt = `
+      You are an AI assistant for an Enterprise Dashboard.
+      Task: Generate a single, high-quality, professional suggestion to fill a text input.
+      Field Type: ${contextType}
+      Current Input (partial): "${currentValue}"
+      Additional Context: ${additionalContext}
+
+      Requirements:
+      - Return ONLY the suggested text. No explanations.
+      - Be specific to enterprise/corporate scenarios.
+      - If 'strategic_intent', focus on business strategy (e.g., "Optimize supply chain logistics...").
+      - If 'system_instruction', create a robust persona definition.
+      - If 'user_prompt', create a complex edge-case test scenario.
+      - If 'hitl_note', write a justification for approval/rejection based on the transaction.
+      - If 'compliance_query', write a natural language search query for audit logs (e.g., "Show failed logins...").
+      - If 'target_audience', suggest a stakeholder group (e.g., "C-Suite & Board of Directors", "Engineering Leads").
+      - If 'constraints', suggest a realistic limitation (e.g., "Budget cap of $500k", "Must be GDPR compliant").
+      - If 'focus_area', suggest a specific domain (e.g., "Q3 Revenue Growth", "Cybersecurity Resilience").
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+        maxOutputTokens: 200,
+      }
+    });
+
+    return response.text?.trim() || "";
+  });
+};
+
 export const generateStudioDeliverable = async (
   type: DeliverableType,
   prompt: string,
@@ -71,7 +109,10 @@ export const generateStudioDeliverable = async (
 ) => {
   return withLogging('generateStudioDeliverable', async () => {
     const ai = getAI();
-    const model = 'gemini-3-pro-preview';
+    // Maps grounding is only supported in Gemini 2.5 series models.
+    const model = locationAware ? 'gemini-2.5-flash' : 'gemini-3-pro-preview';
+    // Max thinking budget for 2.5 Flash is 24576, 3 Pro is 32768.
+    const thinkingBudget = locationAware ? 24576 : 32768;
     
     const baseInstruction = `Tone: ${tone}. Focus on high-fidelity, production-grade output. Ground all claims in real-world data and authoritative sources.`;
     
@@ -100,7 +141,7 @@ export const generateStudioDeliverable = async (
           }
         };
       } catch (e) {
-        console.warn("Geolocation failed or denied, proceeding without Maps grounding.");
+        console.warn("Geolocation failed or denied, proceeding with Search grounding only.");
       }
     }
 
@@ -110,7 +151,7 @@ export const generateStudioDeliverable = async (
       config: {
         systemInstruction: systemInstructions[type],
         temperature: 0.3,
-        thinkingConfig: { thinkingBudget: 32768 }, // Max thinking budget for Pro
+        thinkingConfig: { thinkingBudget: thinkingBudget },
         tools: tools,
         toolConfig: toolConfig
       }
@@ -183,14 +224,9 @@ export const generateConceptImage = async (prompt: string, style: string = 'phot
 export const generateAgentConfiguration = async (intent?: string) => {
   return withLogging('generateAgentConfiguration', async () => {
     const ai = getAI();
-    // Enhanced prompts for better persona generation with edge-case testing
     const basePrompt = intent 
       ? `Optimize an enterprise agent configuration for the following intent: "${intent}". Provide exhaustive, expert-level system instructions including reasoning constraints and persona guardrails. Recommend the best model ('gemini-3-pro-preview' for reasoning, 'gemini-3-flash-preview' for speed).`
-      : `Create an exhaustive, high-fidelity Enterprise Agent configuration for a HIGHLY SPECIFIC niche industrial domain (e.g., Cybersecurity Forensics, Maritime Law, Avionics Compliance, Bioinformatics). 
-         1. Pick a complex, high-stakes niche.
-         2. Provide deep, expert-level system instructions with reasoning steps, tool usage policies, and strict professional guardrails.
-         3. Recommend 'gemini-3-pro-preview' if deep reasoning is needed, or 'gemini-3-flash-preview' for speed.
-         4. Crucially, provide a challenging 'userPrompt' that tests a specific edge case, ethical dilemma, or complex reasoning trap relevant to this domain to verify the agent's integrity.`;
+      : `Create an exhaustive, high-fidelity Enterprise Agent configuration for a HIGHLY SPECIFIC niche industrial domain. Return JSON.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -205,7 +241,7 @@ export const generateAgentConfiguration = async (intent?: string) => {
             description: { type: Type.STRING },
             niche: { type: Type.STRING },
             systemInstruction: { type: Type.STRING },
-            userPrompt: { type: Type.STRING, description: "A complex edge-case scenario to test the agent's reasoning." },
+            userPrompt: { type: Type.STRING },
             model: { type: Type.STRING, enum: ['gemini-3-pro-preview', 'gemini-3-flash-preview'] },
             temperature: { type: Type.NUMBER },
             reasoningRequired: { type: Type.BOOLEAN }
@@ -224,7 +260,7 @@ export const exploreConceptVariations = async (concept: string): Promise<Strateg
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Branch strategic variations for the following concept: "${concept}". Return exactly 3 distinct, high-fidelity strategic variants exploring different risk/reward profiles.`,
+      contents: `Branch strategic variations for the following concept: "${concept}". Return exactly 3 distinct strategic variants.`,
       config: {
         thinkingConfig: { thinkingBudget: 16384 },
         responseMimeType: "application/json",
@@ -254,6 +290,9 @@ export const exploreConceptVariations = async (concept: string): Promise<Strateg
 export const deepResearchReport = async (topic: string, locationAware: boolean = false) => {
   return withLogging('deepResearchReport', async () => {
     const ai = getAI();
+    // Maps grounding is only supported in Gemini 2.5 series models.
+    const model = locationAware ? 'gemini-2.5-flash' : 'gemini-3-pro-preview';
+    const thinkingBudget = locationAware ? 24576 : 32768;
     
     const tools: any[] = [{ googleSearch: {} }];
     let toolConfig: any = undefined;
@@ -263,25 +302,20 @@ export const deepResearchReport = async (topic: string, locationAware: boolean =
         const pos = await new Promise<GeolocationPosition>((res, rej) => navigator.geolocation.getCurrentPosition(res, rej));
         tools.push({ googleMaps: {} });
         toolConfig = {
-          retrievalConfig: {
-            latLng: {
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude
-            }
-          }
+          retrievalConfig: { latLng: { latitude: pos.coords.latitude, longitude: pos.coords.longitude } }
         };
       } catch (e) {
-        console.warn("Geolocation failed, proceeding without Maps grounding.");
+        console.warn("Geolocation failed.");
       }
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Perform an exhaustive deep research analysis on: ${topic}. Ground all findings in real-time data and news. Include multiple authoritative sources and spatial context where relevant.`,
+      model: model,
+      contents: `Deep research report on: ${topic}.`,
       config: {
         tools: tools,
         toolConfig: toolConfig,
-        thinkingConfig: { thinkingBudget: 24576 }
+        thinkingConfig: { thinkingBudget: thinkingBudget }
       }
     });
 
@@ -297,7 +331,7 @@ export const generateVeoVideo = async (prompt: string) => {
   return withLogging('generateVeoVideo', async () => {
     let operation = await ai.models.generateVideos({
       model: 'veo-3.1-fast-generate-preview',
-      prompt: `${prompt}. High fidelity corporate cinematic video, professional color grading, sharp 4k aesthetics.`,
+      prompt: `${prompt}. Corporate cinematic style.`,
       config: {
         numberOfVideos: 1,
         resolution: '1080p',
@@ -311,28 +345,25 @@ export const generateVeoVideo = async (prompt: string) => {
     }
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!downloadLink) throw new Error("Video generation failed.");
-
     const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     const blob = await response.blob();
-    return {
-      url: URL.createObjectURL(blob),
-      operation: operation
-    };
+    return { url: URL.createObjectURL(blob), operation: operation };
   });
 };
 
-export const extendVeoVideo = async (previousOperation: any, prompt: string) => {
-  const ai = getAI();
+// Implement missing extendVeoVideo following SDK guidelines for video extension.
+export const extendVeoVideo = async (prompt: string, previousOperation: any) => {
+  const ai = getAI(); 
   return withLogging('extendVeoVideo', async () => {
+    const previousVideo = previousOperation.response?.generatedVideos?.[0]?.video;
     let operation = await ai.models.generateVideos({
       model: 'veo-3.1-generate-preview',
-      prompt: prompt || 'The scene continues with more detailed motion and cinematic progression.',
-      video: previousOperation.response?.generatedVideos?.[0]?.video,
+      prompt: prompt,
+      video: previousVideo,
       config: {
         numberOfVideos: 1,
         resolution: '720p',
-        aspectRatio: '16:9'
+        aspectRatio: previousVideo?.aspectRatio,
       }
     });
 
@@ -342,14 +373,9 @@ export const extendVeoVideo = async (previousOperation: any, prompt: string) => 
     }
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!downloadLink) throw new Error("Video extension failed.");
-
     const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     const blob = await response.blob();
-    return {
-      url: URL.createObjectURL(blob),
-      operation: operation
-    };
+    return { url: URL.createObjectURL(blob), operation: operation };
   });
 };
 
@@ -358,7 +384,7 @@ export const generateLiveChart = async (query: string): Promise<ChartConfig> => 
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Generate a high-fidelity data visualization dataset for: ${query}. Include multiple data points representing enterprise-level metrics.`,
+      contents: `Data visualization for: ${query}.`,
       config: {
         responseMimeType: "application/json",
         thinkingConfig: { thinkingBudget: 8192 },
@@ -408,11 +434,7 @@ export const speakReport = async (text: string) => {
 export const generatePodcastAudio = async (topic: string, context: string) => {
   return withLogging('generatePodcastAudio', async () => {
     const ai = getAI();
-    const prompt = `TTS the following conversation between Joe (Tech Strategist) and Jane (Design Lead) about: ${topic}.
-      Context: ${context}
-      Joe: I've been reviewing the latest variations for ${topic}. The scalability looks promising.
-      Jane: I agree, Joe. The visual concepts we generated really highlight the professional fidelity.
-      Joe: Exactly. We need to focus on low-latency orchestration to ensure high-fidelity outputs across the fleet.`;
+    const prompt = `Joe and Jane podcast on: ${topic}. Context: ${context}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -422,14 +444,8 @@ export const generatePodcastAudio = async (topic: string, context: string) => {
         speechConfig: {
           multiSpeakerVoiceConfig: {
             speakerVoiceConfigs: [
-              {
-                speaker: 'Joe',
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-              },
-              {
-                speaker: 'Jane',
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
-              }
+              { speaker: 'Joe', voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+              { speaker: 'Jane', voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } } }
             ]
           }
         }
@@ -447,9 +463,6 @@ export const generatePodcastAudio = async (topic: string, context: string) => {
   });
 };
 
-/**
- * Implementation of chatWithSystemCopilot utilizing function calling for navigation.
- */
 export const chatWithSystemCopilot = async (
     message: string, 
     history: any[], 
@@ -462,30 +475,19 @@ export const chatWithSystemCopilot = async (
       name: 'navigate',
       parameters: {
         type: Type.OBJECT,
-        description: 'Navigate to a specific view in the dashboard',
+        description: 'Navigate views',
         properties: {
-          view: {
-            type: Type.STRING,
-            enum: ['home', 'observability', 'cost', 'hitl', 'insights', 'playground', 'knowledge'],
-            description: 'The view ID to navigate to.'
-          }
+          view: { type: Type.STRING, enum: ['home', 'observability', 'cost', 'hitl', 'insights', 'playground', 'knowledge'] }
         },
         required: ['view']
       }
     };
 
-    const instruction = `You are the EPB OS Copilot. You help users navigate the enterprise agent dashboard.
-    
-    SYSTEM CONTEXT:
-    ${systemContext || 'No specific system context provided.'}
-    
-    Use the navigate tool when requested. Be concise and professional.`;
-
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: [...history, { role: 'user', parts: [{ text: message }] }],
       config: {
-        systemInstruction: instruction,
+        systemInstruction: "You help users navigate.",
         tools: [{ functionDeclarations: [navigateTool] }]
       }
     });
@@ -493,49 +495,49 @@ export const chatWithSystemCopilot = async (
     if (response.functionCalls && response.functionCalls.length > 0) {
       const call = response.functionCalls[0];
       if (call.name === 'navigate') {
-        const view = (call.args as any).view;
-        onNavigate(view);
-        return `Confirmed. Navigating to the ${view} view.`;
+          onNavigate((call.args as any).view);
+          return `Navigating.`;
       }
     }
 
-    return response.text || "I've processed your request.";
+    return response.text || "Processed.";
   });
 };
 
-/**
- * Simulation of semantic search using the Gemini API.
- */
 export const simulateKnowledgeRetrieval = async (query: string, corpus: KnowledgeDoc[] = []) => {
   return withLogging('simulateKnowledgeRetrieval', async () => {
     const ai = getAI();
     
-    const contextDocs = corpus.filter(d => d.content);
+    // Filter docs that have actual content ingested
+    const contextDocs = corpus.filter(d => d.content && d.status === 'indexed');
     let promptContext = "";
     
     if (contextDocs.length > 0) {
-        // Build a context string from the uploaded docs, truncating to avoid token limits in this demo
-        promptContext = contextDocs.map(d => `SOURCE: ${d.name}\nCONTENT: ${d.content?.slice(0, 3000)}...`).join('\n\n'); 
+        // Build an exhaustive context string from the uploaded docs
+        promptContext = contextDocs.map(d => `SOURCE: ${d.name}\nTYPE: ${d.type}\nCONTENT:\n${d.content}`).join('\n\n---\n\n'); 
     }
 
     const contents = `
-      Perform a semantic search (RAG) retrieval simulation.
+      Perform a precise semantic search (RAG) retrieval simulation.
       
       USER QUERY: "${query}"
       
-      AVAILABLE DOCUMENTS (Context):
-      ${promptContext || "No user-provided documents available. Simulate a retrieval from a generic enterprise knowledge base (e.g. HR Policy, Engineering Wiki)."}
+      UPLOADED DOCUMENTS (The Grounding Source):
+      ${promptContext || "NO USER DOCUMENTS UPLOADED. Generate generic enterprise mock results if no context is provided."}
       
       INSTRUCTIONS:
-      1. If Context Documents are provided above, YOU MUST extract relevant snippets directly from them to answer the query.
-      2. If no documents are provided, generate plausible mock enterprise document chunks.
-      3. Return the result strictly in the specified JSON format.
+      1. Your primary goal is to find relevant content in the UPLOADED DOCUMENTS provided above.
+      2. If matching content exists, extract EXACT snippets and calculate a relevance score (0.0 to 1.0).
+      3. If no documents match, inform the user or return low-score generic samples.
+      4. DO NOT hallucinate facts outside the provided context if context exists.
+      5. Return the result strictly in the specified JSON format.
     `;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: contents,
       config: {
+        temperature: 0.1, // High precision
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,

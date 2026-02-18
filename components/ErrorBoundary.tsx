@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children?: ReactNode;
@@ -13,8 +13,7 @@ interface State {
  * Standard React Error Boundary component.
  * Intercepts rendering errors in the UI execution layer and provides a fallback interface.
  */
-class ErrorBoundary extends React.Component<Props, State> {
-  // Properly initialize state to ensure it is recognized as part of the class instance
+class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
@@ -29,7 +28,6 @@ class ErrorBoundary extends React.Component<Props, State> {
   }
 
   // Bound arrow function for correct 'this' context when called from event handlers
-  // This ensures inherited setState is correctly accessed
   public handleRetry = () => {
     this.setState({ hasError: false, error: null });
   };
@@ -76,7 +74,6 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    // Correctly returning children from props ensuring type-safety through React.Component extension
     return this.props.children;
   }
 }
