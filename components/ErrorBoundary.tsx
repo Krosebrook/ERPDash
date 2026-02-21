@@ -19,6 +19,11 @@ class ErrorBoundary extends React.Component<Props, State> {
     error: null,
   };
 
+  constructor(props: Props) {
+    super(props);
+    this.handleRetry = this.handleRetry.bind(this);
+  }
+
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
@@ -27,10 +32,9 @@ class ErrorBoundary extends React.Component<Props, State> {
     console.error('Critical operational failure intercepted:', error, errorInfo);
   }
 
-  // Bound arrow function for correct 'this' context when called from event handlers
-  public handleRetry = () => {
+  public handleRetry(): void {
     this.setState({ hasError: false, error: null });
-  };
+  }
 
   public render(): ReactNode {
     if (this.state.hasError) {
