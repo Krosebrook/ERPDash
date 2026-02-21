@@ -131,7 +131,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
 
     try {
       const result = await generateStudioDeliverable(deliverableType, prompt, includeImages, tone, imageResolution, useLocation);
-      setStudioOutput({ ...result, type: 'text' });
+      setStudioOutput({ ...result, type: 'text', sources: result.sources as GroundingSource[] | undefined });
       if (autoVariations) {
         const variants = await exploreConceptVariations(prompt);
         setVariations(variants);

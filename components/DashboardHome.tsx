@@ -74,7 +74,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ userRole, metrics, chartD
           </div>
           <div className="h-48 md:h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} onMouseMove={(s) => s.activeTooltipIndex !== undefined && setHoveredBar(s.activeTooltipIndex)} onMouseLeave={() => setHoveredBar(null)}>
+              <BarChart data={chartData} onMouseMove={(s) => s.activeTooltipIndex !== undefined && setHoveredBar(Number(s.activeTooltipIndex))} onMouseLeave={() => setHoveredBar(null)}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                 <XAxis dataKey="name" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} />
                 <YAxis stroke="#475569" fontSize={8} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
