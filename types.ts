@@ -21,6 +21,13 @@ export interface MetricData {
   changePercent?: number;
 }
 
+export interface AgentPerformancePoint {
+  timestamp: string;
+  successRate: number;
+  avgLatencyMs: number;
+  costUSD: number;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -35,6 +42,7 @@ export interface Agent {
   model?: string;
   temperature?: number;
   systemInstruction?: string;
+  performanceHistory?: AgentPerformancePoint[];
 }
 
 export interface TraceSpan {
@@ -60,9 +68,27 @@ export interface StrategicVariation {
 
 export interface GroundingSource {
   web?: {
-    uri: string;
+    uri?: string;
     title?: string;
   };
+}
+
+export enum DeliverableFormat {
+  JPG = 'jpg',
+  PNG = 'png',
+  VECTOR = 'vector',
+  PDF = 'pdf',
+  JSON = 'json',
+  MARKDOWN = 'markdown'
+}
+
+export interface FidelityConfig {
+  resolution: '720p' | '1080p' | '4K';
+  detailLevel: 'low' | 'medium' | 'high' | 'ultra';
+  stylisticGuidelines?: string;
+  format: DeliverableFormat;
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3';
+  colorProfile?: 'sRGB' | 'Display P3' | 'Adobe RGB';
 }
 
 export interface StudioDeliverable {
@@ -72,6 +98,8 @@ export interface StudioDeliverable {
   audioUrl?: string;
   variations?: StrategicVariation[];
   sources?: GroundingSource[];
+  fidelityConfig?: FidelityConfig;
+  feedback?: string[];
 }
 
 export interface AuditLog {

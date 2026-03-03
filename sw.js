@@ -31,12 +31,12 @@ self.addEventListener('fetch', (event) => {
 
   // CRITICAL: Gemini API and other dynamic tools are NETWORK ONLY
   // Never cache POST requests or sensitive API endpoints
-  if (url.origin === 'https://generativelanguage.googleapis.com' || event.request.method !== 'GET') {
+  if (url.origin.includes('generativelanguage.googleapis.com') || event.request.method !== 'GET') {
     return; // Let browser handle via network
   }
 
   // UI Frameworks/Assets - Stale While Revalidate
-  if (url.origin === 'https://esm.sh' || url.origin === 'https://fonts.gstatic.com') {
+  if (url.origin.includes('esm.sh') || url.origin.includes('fonts.gstatic.com')) {
     event.respondWith(
       caches.open(CACHE_NAME).then((cache) => {
         return cache.match(event.request).then((cachedResponse) => {

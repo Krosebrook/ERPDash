@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality, FunctionDeclaration } from "@google/genai";
-import { StrategicVariation, GroundingSource, KnowledgeDoc } from "../types";
+import { StrategicVariation, GroundingSource, KnowledgeDoc, FidelityConfig, DeliverableFormat } from "../types";
 
 export interface ChartConfig {
   title: string;
@@ -105,7 +105,8 @@ export const generateStudioDeliverable = async (
   includeImages: boolean = false,
   tone: string = 'Professional',
   imageSize: '1K' | '2K' | '4K' = '1K',
-  locationAware: boolean = false
+  locationAware: boolean = false,
+  fidelityConfig?: FidelityConfig
 ) => {
   return withLogging('generateStudioDeliverable', async () => {
     const ai = getAI();
@@ -114,7 +115,17 @@ export const generateStudioDeliverable = async (
     // Max thinking budget for 2.5 Flash is 24576, 3 Pro is 32768.
     const thinkingBudget = locationAware ? 24576 : 32768;
     
-    const baseInstruction = `Tone: ${tone}. Focus on high-fidelity, production-grade output. Ground all claims in real-world data and authoritative sources.`;
+    const fidelityInfo = fidelityConfig ? `
+      FIDELITY REQUIREMENTS:
+      - Resolution: ${fidelityConfig.resolution}
+      - Detail Level: ${fidelityConfig.detailLevel}
+      - Format: ${fidelityConfig.format}
+      - Aspect Ratio: ${fidelityConfig.aspectRatio || 'N/A'}
+      - Color Profile: ${fidelityConfig.colorProfile || 'N/A'}
+      - Stylistic Guidelines: ${fidelityConfig.stylisticGuidelines || 'None'}
+    ` : "";
+
+    const baseInstruction = `Tone: ${tone}. Focus on high-fidelity, production-grade output. Ground all claims in real-world data and authoritative sources. ${fidelityInfo}`;
     
     const systemInstructions: Record<DeliverableType, string> = {
       report: `${baseInstruction} You are a Principal Strategy Consultant. Provide an exhaustive executive report with deep reasoning blocks.`,
@@ -172,6 +183,64 @@ export const generateStudioDeliverable = async (
       content: text,
       images: images,
       sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [],
+      fidelityConfig: fidelityConfig,
+      _rawResponse: response
+    };
+  });
+};
+
+export const refineStudioDeliverable = async (
+  previousDeliverable: any,
+  feedback: string,
+  fidelityConfig?: FidelityConfig
+) => {
+  return withLogging('refineStudioDeliverable', async () => {
+    const ai = getAI();
+    const model = 'gemini-3-pro-preview';
+    const thinkingBudget = 32768;
+
+    const fidelityInfo = fidelityConfig ? `
+      UPDATED FIDELITY REQUIREMENTS:
+      - Resolution: ${fidelityConfig.resolution}
+      - Detail Level: ${fidelityConfig.detailLevel}
+      - Format: ${fidelityConfig.format}
+      - Aspect Ratio: ${fidelityConfig.aspectRatio || 'N/A'}
+      - Color Profile: ${fidelityConfig.colorProfile || 'N/A'}
+      - Stylistic Guidelines: ${fidelityConfig.stylisticGuidelines || 'None'}
+    ` : "";
+
+    const prompt = `
+      You are refining a previous deliverable based on user feedback.
+      
+      PREVIOUS CONTENT:
+      ${previousDeliverable.content}
+      
+      USER FEEDBACK:
+      "${feedback}"
+      
+      ${fidelityInfo}
+      
+      Please provide an updated, higher-fidelity version of the deliverable that addresses the feedback and adheres to the technical specifications.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        systemInstruction: "You are a Senior Principal Expert. Your task is to refine and elevate the quality of the provided content based on specific feedback and technical requirements.",
+        temperature: 0.2,
+        thinkingConfig: { thinkingBudget: thinkingBudget },
+        tools: [{ googleSearch: {} }]
+      }
+    });
+
+    const text = response.text || "";
+    
+    return {
+      content: text,
+      sources: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [],
+      fidelityConfig: fidelityConfig || previousDeliverable.fidelityConfig,
+      feedback: [...(previousDeliverable.feedback || []), feedback],
       _rawResponse: response
     };
   });

@@ -4,6 +4,7 @@ import { Agent, TraceSpan, AgentType } from '../types';
 import { generateAgentConfiguration } from '../services/geminiService';
 import Tooltip from './Tooltip';
 import TraceTimeline from './TraceTimeline';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 interface Props {
   agents: Agent[];
@@ -441,13 +442,41 @@ const AgentObservability: React.FC<Props> = ({ agents, selectedAgent, onAgentSel
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-2xl relative overflow-hidden group">
-          <div className="flex justify-between items-center mb-6 md:mb-8">
-            <h4 className="text-[10px] md:text-[11px] font-black uppercase text-slate-500 tracking-[0.3em] md:tracking-[0.4em]">Neural Reasoning Snapshot</h4>
-            <div className="text-[9px] font-mono text-slate-700">TRACE_ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-2xl relative overflow-hidden group">
+            <div className="flex justify-between items-center mb-6 md:mb-8">
+              <h4 className="text-[10px] md:text-[11px] font-black uppercase text-slate-500 tracking-[0.3em] md:tracking-[0.4em]">Performance History</h4>
+              <div className="text-[9px] font-mono text-slate-700">LIVE SYNC</div>
+            </div>
+            <div className="h-48 md:h-64 w-full">
+              {selectedAgent?.performanceHistory && selectedAgent.performanceHistory.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={selectedAgent.performanceHistory}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="timestamp" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} />
+                    <YAxis yAxisId="left" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                    <YAxis yAxisId="right" orientation="right" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                    <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', fontSize: '10px' }} />
+                    <Line yAxisId="left" type="monotone" dataKey="successRate" name="Success Rate (%)" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="avgLatencyMs" name="Latency (ms)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="costUSD" name="Cost (USD)" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full w-full flex items-center justify-center text-slate-600 text-xs font-bold uppercase tracking-widest">
+                  Awaiting Telemetry Data...
+                </div>
+              )}
+            </div>
           </div>
-          <div className="bg-slate-950/90 rounded-xl md:rounded-[2rem] p-6 md:p-10 font-mono text-[10px] md:text-[11px] text-blue-400 leading-loose border border-slate-800/50 shadow-inner overflow-x-auto whitespace-pre">
-            {`{
+
+          <div className="bg-slate-900 border border-slate-800 rounded-[1.5rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-2xl relative overflow-hidden group">
+            <div className="flex justify-between items-center mb-6 md:mb-8">
+              <h4 className="text-[10px] md:text-[11px] font-black uppercase text-slate-500 tracking-[0.3em] md:tracking-[0.4em]">Neural Reasoning Snapshot</h4>
+              <div className="text-[9px] font-mono text-slate-700">TRACE_ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</div>
+            </div>
+            <div className="bg-slate-950/90 rounded-xl md:rounded-[2rem] p-6 md:p-10 font-mono text-[10px] md:text-[11px] text-blue-400 leading-loose border border-slate-800/50 shadow-inner overflow-x-auto whitespace-pre h-48 md:h-64">
+              {`{
   "traceId": "tr-99283-epb",
   "reasoning_mode": "industrial_synthesis",
   "logical_cohesion": 0.994,
@@ -458,6 +487,7 @@ const AgentObservability: React.FC<Props> = ({ agents, selectedAgent, onAgentSel
     "context_depth": "32k"
   }
 }`}
+            </div>
           </div>
         </div>
       </div>

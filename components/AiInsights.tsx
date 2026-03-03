@@ -38,7 +38,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
   const [hasKey, setHasKey] = useState<boolean>(false);
   const [maskedKey, setMaskedKey] = useState<string>('');
 
-  const [studioOutput, setStudioOutput] = useState<{content: string, images: string[], type?: string, sources?: GroundingSource[]} | null>(null);
+  const [studioOutput, setStudioOutput] = useState<{content: string, images: string[], type?: string, sources?: GroundingSource[], fidelityConfig?: any, feedback?: string[]} | null>(null);
   const [studioMode, setStudioMode] = useState<'text' | 'video' | 'chart'>('text');
   const [deliverableType, setDeliverableType] = useState<DeliverableType>('report');
   const [tone, setTone] = useState('Professional');
@@ -131,7 +131,7 @@ const AiInsights: React.FC<{ agents: Agent[] }> = ({ agents }) => {
 
     try {
       const result = await generateStudioDeliverable(deliverableType, prompt, includeImages, tone, imageResolution, useLocation);
-      setStudioOutput({ ...result, type: 'text', sources: result.sources as GroundingSource[] | undefined });
+      setStudioOutput({ ...result, type: 'text' });
       if (autoVariations) {
         const variants = await exploreConceptVariations(prompt);
         setVariations(variants);

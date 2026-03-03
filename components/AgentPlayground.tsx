@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { generateStudioDeliverable, generateAgentConfiguration, generateInputSuggestion } from '../services/geminiService';
-import { TraceSpan } from '../types';
+import { generateStudioDeliverable, generateAgentConfiguration, generateInputSuggestion, refineStudioDeliverable } from '../services/geminiService';
+import { TraceSpan, DeliverableFormat, FidelityConfig } from '../types';
 import Tooltip from './Tooltip';
 
 interface Props {
@@ -15,6 +15,17 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
   const [model, setModel] = useState('gemini-3-flash-preview');
   const [temperature, setTemperature] = useState(0.7);
   const [output, setOutput] = useState('');
+  const [lastDeliverable, setLastDeliverable] = useState<any>(null);
+  const [feedback, setFeedback] = useState('');
+  
+  // Fidelity Config
+  const [fidelity, setFidelity] = useState<FidelityConfig>({
+    resolution: '1080p',
+    detailLevel: 'high',
+    format: DeliverableFormat.MARKDOWN,
+    aspectRatio: '16:9',
+    colorProfile: 'sRGB'
+  });
   
   // State for AI Generation features
   const [loading, setLoading] = useState(false);
@@ -32,8 +43,17 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
     setLastTraceId(null);
     const start = Date.now();
     try {
-       const result = await generateStudioDeliverable('report', userPrompt + `\n[SYSTEM CONTEXT: ${systemPrompt}]`);
+       const result = await generateStudioDeliverable(
+         'report', 
+         userPrompt + `\n[SYSTEM CONTEXT: ${systemPrompt}]`,
+         false,
+         'Professional',
+         '1K',
+         false,
+         fidelity
+       );
        setOutput(result.content);
+       setLastDeliverable(result);
        
        // Log the high-fidelity trace to observability
        if (onAddTrace) {
@@ -77,28 +97,60 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
     }
   };
 
-  const handleAutoGenerate = async (type: 'surprise' | 'optimize') => {
-      setGeneratingConfig(true);
-      try {
-          const intent = type === 'optimize' 
-            ? `Optimize an agent based on this partial instruction: ${systemPrompt.slice(0, 150)}`
-            : undefined;
+  const handleRefine = async () => {
+    if (!feedback.trim() || !lastDeliverable) return;
+    setLoading(true);
+    const start = Date.now();
+    try {
+      const result = await refineStudioDeliverable(lastDeliverable, feedback, fidelity);
+      setOutput(result.content);
+      setLastDeliverable(result);
+      setFeedback('');
 
-          const config = await generateAgentConfiguration(intent);
-          
-          setSystemPrompt(config.systemInstruction);
-          setUserPrompt(config.userPrompt);
-          setModel(config.model);
-          setTemperature(config.temperature);
-          setAgentName(config.name);
-          setNiche(config.niche);
-          setReasoningRecommended(config.reasoningRequired);
-      } catch (e) {
-          console.error("Failed to auto-generate agent", e);
-      } finally {
-          setGeneratingConfig(false);
+      if (onAddTrace) {
+        onAddTrace({
+          id: `tr-refine-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          spanName: `playground.refine`,
+          durationMs: Date.now() - start,
+          status: 'ok',
+          tokens: Math.floor(result.content.length / 4),
+          cost: (Date.now() - start) * 0.0001,
+          attributes: { model, mode: 'refine', feedback_length: feedback.length }
+        });
       }
+    } catch (e) {
+      console.error("Refinement failed", e);
+    } finally {
+      setLoading(false);
+    }
   };
+
+    const handleAutoGenerate = async (type: 'surprise' | 'optimize') => {
+        setGeneratingConfig(true);
+        try {
+            let intent: string | undefined = undefined;
+            if (type === 'optimize') {
+                intent = `Optimize an agent based on this partial instruction: ${systemPrompt.slice(0, 150)}`;
+            } else if (type === 'surprise') {
+                intent = `Create a configuration for an agent named "${agentName}" specializing in the niche: "${niche || 'General Enterprise'}".`;
+            }
+
+            const config = await generateAgentConfiguration(intent);
+            
+            setSystemPrompt(config.systemInstruction);
+            setUserPrompt(config.userPrompt);
+            setModel(config.model);
+            setTemperature(config.temperature);
+            setAgentName(config.name);
+            setNiche(config.niche);
+            setReasoningRecommended(config.reasoningRequired);
+        } catch (e) {
+            console.error("Failed to auto-generate agent", e);
+        } finally {
+            setGeneratingConfig(false);
+        }
+    };
 
   const handleSuggestion = async (field: 'system' | 'user') => {
     if (suggestingField) return;
@@ -140,22 +192,31 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
             )}
 
             <div className="flex flex-col md:flex-row justify-between md:items-start border-b border-[var(--border-color)] pb-8 gap-6">
-                <div className="space-y-2">
-                    <h3 className="text-3xl font-black text-[var(--text-primary)] flex items-center gap-4 tracking-tight">
-                        <div className="p-3 bg-blue-600/10 rounded-2xl border border-blue-500/20">
-                            <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                        </div>
-                        {agentName}
-                    </h3>
-                    {niche && (
-                        <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-black text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20 uppercase tracking-[0.2em]">{niche}</span>
-                            {reasoningRecommended && (
-                                <Tooltip content="Gemini recommends Pro models for this high-complexity niche.">
-                                    <span className="text-[10px] font-black text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20 uppercase tracking-[0.2em] animate-pulse">Deep Reasoning Recommended</span>
-                                </Tooltip>
-                            )}
-                        </div>
+                <div className="space-y-4 flex-1">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Agent Designation</label>
+                        <input 
+                            type="text"
+                            value={agentName}
+                            onChange={(e) => setAgentName(e.target.value)}
+                            className="w-full bg-transparent text-3xl font-black text-[var(--text-primary)] tracking-tight focus:outline-none border-b border-transparent focus:border-blue-500/50 transition-all"
+                            placeholder="Enter Agent Name..."
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Domain Niche</label>
+                        <input 
+                            type="text"
+                            value={niche || ''}
+                            onChange={(e) => setNiche(e.target.value || null)}
+                            className="w-full bg-transparent text-xs font-black text-blue-400 uppercase tracking-[0.2em] focus:outline-none border-b border-transparent focus:border-blue-500/50 transition-all"
+                            placeholder="Enter Niche (e.g. Supply Chain)..."
+                        />
+                    </div>
+                    {reasoningRecommended && (
+                        <Tooltip content="Gemini recommends Pro models for this high-complexity niche.">
+                            <span className="inline-block text-[10px] font-black text-purple-400 bg-purple-500/10 px-3 py-1 rounded-full border border-purple-500/20 uppercase tracking-[0.2em] animate-pulse">Deep Reasoning Recommended</span>
+                        </Tooltip>
                     )}
                 </div>
                 <div className="flex gap-3">
@@ -236,6 +297,85 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
                     />
                 </div>
                 
+                {/* Fidelity Configuration Section */}
+                <div className="bg-slate-900/40 border border-[var(--border-color)] rounded-2xl p-6 space-y-6">
+                    <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em]">Fidelity Specifications</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Resolution</label>
+                            <select 
+                                value={fidelity.resolution}
+                                onChange={(e) => setFidelity({...fidelity, resolution: e.target.value as any})}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                            >
+                                <option value="720p">720p</option>
+                                <option value="1080p">1080p</option>
+                                <option value="4K">4K (Ultra HD)</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Detail Level</label>
+                            <select 
+                                value={fidelity.detailLevel}
+                                onChange={(e) => setFidelity({...fidelity, detailLevel: e.target.value as any})}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                            >
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                                <option value="ultra">Ultra Fidelity</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Format</label>
+                            <select 
+                                value={fidelity.format}
+                                onChange={(e) => setFidelity({...fidelity, format: e.target.value as any})}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                            >
+                                {Object.values(DeliverableFormat).map(f => (
+                                    <option key={f} value={f}>{f.toUpperCase()}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Aspect Ratio</label>
+                            <select 
+                                value={fidelity.aspectRatio}
+                                onChange={(e) => setFidelity({...fidelity, aspectRatio: e.target.value as any})}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                            >
+                                <option value="1:1">1:1 (Square)</option>
+                                <option value="16:9">16:9 (Widescreen)</option>
+                                <option value="9:16">9:16 (Portrait)</option>
+                                <option value="4:3">4:3 (Standard)</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[9px] font-bold text-slate-500 uppercase">Color Profile</label>
+                            <select 
+                                value={fidelity.colorProfile}
+                                onChange={(e) => setFidelity({...fidelity, colorProfile: e.target.value as any})}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                            >
+                                <option value="sRGB">sRGB</option>
+                                <option value="Display P3">Display P3</option>
+                                <option value="Adobe RGB">Adobe RGB</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Stylistic Guidelines</label>
+                        <input 
+                            type="text"
+                            value={fidelity.stylisticGuidelines || ''}
+                            onChange={(e) => setFidelity({...fidelity, stylisticGuidelines: e.target.value})}
+                            placeholder="e.g., Minimalist, Brutalist, Swiss Modern..."
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[10px] font-bold text-slate-300 focus:border-blue-500 outline-none"
+                        />
+                    </div>
+                </div>
+
                  <div className="flex flex-col">
                     <div className="flex justify-between items-center mb-3">
                         <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Edge-Case Scenario Test</label>
@@ -292,7 +432,7 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
                 <div className="text-[9px] font-black text-slate-600 bg-slate-900 px-3 py-1 rounded-full border border-slate-800 uppercase tracking-widest">Read Only</div>
             </div>
 
-            <div className="flex-1 bg-slate-950 rounded-[2.5rem] border border-slate-800/50 p-10 font-mono text-xs text-slate-200 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-inner selection:bg-blue-600/30 custom-scrollbar">
+            <div className="flex-1 bg-slate-950 rounded-[2.5rem] border border-slate-800/50 p-10 font-mono text-xs text-slate-200 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-inner selection:bg-blue-600/30 custom-scrollbar relative">
                 {output ? (
                     <div className="animate-in fade-in duration-1000 slide-in-from-bottom-4">
                         {output}
@@ -306,6 +446,29 @@ const AgentPlayground: React.FC<Props> = ({ onAddTrace, onNavigate }) => {
                     </div>
                 )}
             </div>
+
+            {output && (
+                <div className="mt-6 space-y-4 animate-in slide-in-from-bottom-2">
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 relative">
+                            <input 
+                                type="text"
+                                value={feedback}
+                                onChange={(e) => setFeedback(e.target.value)}
+                                placeholder="Provide refinement feedback..."
+                                className="w-full bg-slate-900 border border-slate-800 rounded-xl py-3 px-4 text-xs text-white focus:border-blue-500 outline-none pr-24"
+                            />
+                            <button 
+                                onClick={handleRefine}
+                                disabled={loading || !feedback.trim()}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-30"
+                            >
+                                Refine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
              <div className="mt-8 flex flex-col md:flex-row justify-between items-center px-6 gap-6">
                 <div className="flex items-center gap-10">

@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
   children?: ReactNode;
@@ -13,15 +13,13 @@ interface State {
  * Standard React Error Boundary component.
  * Intercepts rendering errors in the UI execution layer and provides a fallback interface.
  */
-class ErrorBoundary extends React.Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
-
+class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.handleRetry = this.handleRetry.bind(this);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
   }
 
   public static getDerivedStateFromError(error: Error): State {
@@ -32,9 +30,10 @@ class ErrorBoundary extends React.Component<Props, State> {
     console.error('Critical operational failure intercepted:', error, errorInfo);
   }
 
-  public handleRetry(): void {
+  // Bound arrow function for correct 'this' context when called from event handlers
+  public handleRetry = () => {
     this.setState({ hasError: false, error: null });
-  }
+  };
 
   public render(): ReactNode {
     if (this.state.hasError) {
